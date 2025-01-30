@@ -1,0 +1,12 @@
+pydantic-settings~=2.7.1
+fastapi~=0.115.7
+SQLAlchemy~=2.0.37
+python-dotenv~=1.0.1
+pandas~=2.2.3
+protobuf~=5.29.3
+grpcio~=1.70.0
+uvicorn~=0.34.0
+numpy~=1.26.4
+threadpoolctl~=3.5.0
+implicit~=0.7.2
+RecTools~=0.10.0

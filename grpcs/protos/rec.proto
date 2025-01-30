@@ -1,0 +1,30 @@
+syntax = "proto3";
+package  rec;
+service RecService {
+    rpc GetUser (UserRetrieveRequest) returns (UserResponse) {};
+}
+message RecResponse {
+  int32 id = 1;
+  string cover = 2;
+
+}
+message UserResponse {
+  int32 id = 1;
+  string last_login = 2;
+  int32 is_superuser = 3;
+  int32 is_staff = 4;
+  int32 is_active = 5;
+  string date_joined = 6;
+  string last_seen_date = 7;
+  int32 yaoi = 8;
+  int32 adult = 9;
+  int32 preference = 10;
+  int32 is_banned = 11;
+  optional string birthday = 12;
+  int32 sex = 13;
+  int32 is_premium = 14;
+}
+
+message UserRetrieveRequest {
+  int32 id = 1;
+}

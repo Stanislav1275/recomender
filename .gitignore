@@ -1,0 +1,13 @@
+.qodo
+.venv
+.env
+.idea
+*/__pycache__/*.pyc
+__pycache__/
+grpcs/*/*.csv
+*/*.dat
+grpcs/*/*.dat
+/grpcs/services/data_en/data_en/interactions.csv
+/grpcs/services/data_en/data_en/items_en.csv
+/grpcs/services/ml-1m/ml-1m/users.dat
+/grpcs/services/data_en/data_en/users_en.csv
