@@ -24,6 +24,20 @@ logger = logging.getLogger(__name__)
 
 class RecService:
     @staticmethod
+    async def relavant_2_item(item_id: int):
+        model = LightFMWrapperModel(LightFM(no_components=10, loss="bpr", random_state=60))
+        m = model.load(f='model/model.csv')
+        with open("model/dataset.pkl", 'rb') as f:
+            dataset = pickle.load(f)
+            recos = m.recommend_to_items(
+
+                target_items=[item_id],
+                dataset=dataset,
+                k=40,
+                filter_itself=True,
+            )
+            return recos
+    @staticmethod
     async def rec(user_id: int):
         model = LightFMWrapperModel(LightFM(no_components=10, loss="bpr", random_state=60))
         m = model.load(f='model/model.csv')
@@ -31,6 +45,7 @@ class RecService:
             dataset = pickle.load(f)
             # popular = m._recommend_cold(dataset=dataset)
             recos = m.recommend(
+
                 users=[user_id],
                 dataset=dataset,
                 k=40,
@@ -51,6 +66,7 @@ class RecService:
         model = LightFMWrapperModel(LightFM(no_components=10, loss="bpr", random_state=RANDOM_STATE))
         try:
             dataset = Dataset.construct(
+
                 interactions_df=interactions,
                 user_features_df=user_features,
                 cat_user_features=["age_group", "sex", "preference"],
@@ -59,7 +75,7 @@ class RecService:
             )
             with open('model/dataset.pkl', 'wb') as f:
                 pickle.dump(dataset, f)
-                model.fit(dataset)
+                model.fit(dataset, num_epochs=10)
                 model.save(f="model/model.csv")
                 print(model.is_fitted)
         except Exception as e:
