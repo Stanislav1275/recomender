@@ -24,10 +24,9 @@ logger = logging.getLogger(__name__)
 
 class RecService:
     @staticmethod
-    async def rec(user_id:int):
+    async def rec(user_id: int):
         model = LightFMWrapperModel(LightFM(no_components=10, loss="bpr", random_state=60))
         m = model.load(f='model/model.csv')
-        print(m.is_fitted)
         with open("model/dataset.pkl", 'rb') as f:
             dataset = pickle.load(f)
             # popular = m._recommend_cold(dataset=dataset)
@@ -35,11 +34,9 @@ class RecService:
                 users=[user_id],
                 dataset=dataset,
                 k=40,
-
                 filter_viewed=True,
             )
 
-            print(recos)
             return recos
         # return recos.head(10)
 
@@ -47,12 +44,9 @@ class RecService:
     async def train():
         user_features = await DataPrepareService.get_users_features()
         items_features = await DataPrepareService.get_titles_features()
-        interactions = pandas.DataFrame({Columns.Item: [3, 7, 8], Columns.User: [1, 1, 2],
-                                         Columns.Datetime: [pandas.to_datetime("now"), pandas.to_datetime("now"),
-                                                            pandas.to_datetime("now")], Columns.Weight: [1, 3, 5]})
+        interactions = await DataPrepareService.get_interactions()
 
         RANDOM_STATE = 60
-
 
         model = LightFMWrapperModel(LightFM(no_components=10, loss="bpr", random_state=RANDOM_STATE))
         try:
@@ -65,14 +59,12 @@ class RecService:
             )
             with open('model/dataset.pkl', 'wb') as f:
                 pickle.dump(dataset, f)
-
-
+                model.fit(dataset)
+                model.save(f="model/model.csv")
+                print(model.is_fitted)
         except Exception as e:
             logger.error(f"Error during training: {e}")
             print(model)
-        print(1)
-
-        model.save(f="model/model.csv")
         # model._fit_partial(dataset=Dataset.construct())
 
 # import numpy as np

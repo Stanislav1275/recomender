@@ -1,21 +1,22 @@
-from datetime import timedelta
+from datetime import timedelta, datetime
 
+import pytz
 from pandas.core.interchange.dataframe_protocol import Column
 from rectools import Columns
 from sqlalchemy import func
 
-from models import RawUsers, Titles, TitlesCategories, TitlesGenres, Bookmarks, Rating
+from models import RawUsers, Titles, TitlesCategories, TitlesGenres, Bookmarks, Rating, UserTitleData
 import warnings
 import os
 import threadpoolctl
-
+import json
 from utils.age_group import calculate_age_group
 from utils.cat_chapters import categorize_chapters
 
 warnings.filterwarnings('ignore')
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 threadpoolctl.threadpool_limits(1, "blas")
-USERS_LIMIT = 20
+USERS_LIMIT = 20000000
 
 
 def get_db():
@@ -81,23 +82,52 @@ def map_bookmark_type_id(bookmark_type_id):
     }
     return switcher.get(bookmark_type_id, 1)
 
+
 class UserTitleDataPreparer:
     @staticmethod
     async def to_interact():
         with SessionLocal() as db:
-            user_title_data_pd = db.query(UserTitle).filter_by(is_erotic=False, is_yaoi=False).all()
+            user_title_data_pd = pd.read_sql_query(db.query(UserTitleData).statement.limit(USERS_LIMIT), db.bind)
+            user_title_data_pd.rename({"last_read_date": Columns.Datetime}, inplace=True)
+            new_rows = []
+
+            for index, row in user_title_data_pd.iterrows():
+                chapter_votes = row['chapter_votes'] if 'chapter_votes' in row else []
+                chapter_views = row['chapter_views'] if 'chapter_views' in row else []
+
+                for _ in chapter_votes:
+                    new_rows.append({
+                        Columns.User: row[Columns.User],
+                        Columns.Item: row["title_id"],
+                        Columns.Weight: 3,
+                        Columns.Datetime: row['last_read_date']
+                    })
+
+                for _ in chapter_views:
+                    new_rows.append({
+                        Columns.User: row[Columns.User],
+                        Columns.Item: row["title_id"],
+                        Columns.Weight: 1.2,
+                        Columns.Datetime: row['last_read_date']
+                    })
+
+            final_df = pd.DataFrame(new_rows)
+            final_df = final_df[[Columns.User, Columns.Item, Columns.Datetime, Columns.Weight]]
+            return final_df
+
 
 class BookmarksPreparer:
     @staticmethod
     async def to_interact():
         with SessionLocal() as db:
-            bookmarks_pd = pd.read_sql_query(db.query(Bookmarks).where(is_default=1).limit(USERS_LIMIT).statement,
+            bookmarks_pd = pd.read_sql_query(db.query(Bookmarks).filter_by(is_default=1).limit(USERS_LIMIT).statement,
                                              db.bind)
             bookmarks_pd.rename({"title_id": Columns.Item, "bookmark_type_id": Columns.Weight}, axis='columns',
                                 inplace=True)
+            bookmarks_pd[Columns.Datetime] = pd.to_datetime("now")
             bookmarks_pd[Columns.Weight] = bookmarks_pd[Columns.Weight].apply(map_bookmark_type_id)
-
-            bookmarks_pd.drop(columns=["id"], inplace=True)
+            bookmarks_pd.drop(columns=["id", "is_default"], inplace=True)
+            bookmarks_pd = bookmarks_pd[[Columns.User, Columns.Item, Columns.Weight, Columns.Datetime]]
             return bookmarks_pd
 
 
@@ -110,17 +140,24 @@ class RatingPraparer:
             # .filter(Rating.date.between(thirty_days_ago, cur_date))
             query = db.query(Rating).limit(USERS_LIMIT).statement
             ratings_pd = pd.read_sql_query(query, db.bind)
-            ratings_pd.rename({"date": "datetime", "title_id": Columns.Item, "rating": Columns.Weight}, axis='columns',
+            ratings_pd.rename({"date": Columns.Datetime, "title_id": Columns.Item, "rating": Columns.Weight},
+                              axis='columns',
                               inplace=True)
             ratings_pd.drop(columns=["id"], inplace=True)
             ratings_pd[Columns.Weight] = ratings_pd[Columns.Weight].apply(map_ratings)
+            ratings_pd = ratings_pd[[Columns.User, Columns.Item, Columns.Weight, Columns.Datetime]]
             return ratings_pd
 
 
 class DataPrepareService:
     @staticmethod
     async def get_interactions():
-        return await BookmarksPreparer.to_interact()
+        # todo parallel
+        bookmarks = await BookmarksPreparer.to_interact()
+        ratings = await RatingPraparer.to_interact()
+        user_title_data = await UserTitleDataPreparer.to_interact()
+        combined_df = pd.concat([bookmarks, ratings, user_title_data], ignore_index=True)
+        return combined_df
 
     @staticmethod
     async def get_users_features():

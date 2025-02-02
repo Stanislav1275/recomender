@@ -279,8 +279,8 @@ class UserTitleData(Base):
     last_read_date = Column(DateTime, nullable=True)
     title_id = Column(BigInteger, ForeignKey('titles.id'))
     user_id = Column(BigInteger, ForeignKey('users.id'))
-    chapter_votes = Column(JSON, nullable=False, default=list)
-    chapter_views = Column(JSON, nullable=False, default=list)
+    chapter_votes = Column(JSON, nullable=False)
+    chapter_views = Column(JSON, nullable=False)
 
 class RawUsers(Base):
     __tablename__ = 'users'
