@@ -30,6 +30,7 @@ class RecService:
         print(m.is_fitted)
         with open("model/dataset.pkl", 'rb') as f:
             dataset = pickle.load(f)
+            # popular = m._recommend_cold(dataset=dataset)
             recos = m.recommend(
                 users=[user_id],
                 dataset=dataset,
@@ -37,6 +38,7 @@ class RecService:
 
                 filter_viewed=True,
             )
+
             print(recos)
             return recos
         # return recos.head(10)

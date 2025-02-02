@@ -1,5 +1,6 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Boolean, JSON, DECIMAL, SmallInteger, Date, BigInteger
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Boolean, JSON, DECIMAL, SmallInteger, Date, \
+    BigInteger, select
+from sqlalchemy.orm import relationship, column_property
 
 from core.database import Base  # Импортируйте Base из вашего файла database.py
 
@@ -17,14 +18,14 @@ class Bookmarks(Base):
     __tablename__ = 'bookmarks'
 
     id = Column(BigInteger, primary_key=True)
-    date = Column(DateTime)
-    update_date = Column(DateTime)
-    is_notify_paid_chapters = Column(Integer)
-    view_state = Column(SmallInteger)
+    # date = Column(DateTime) use currentDate
     bookmark_type_id = Column(BigInteger, ForeignKey('bookmark_type.id'), nullable=True)
+    # !!!
+    is_default = column_property(
+        select(BookmarkType.is_default).where(BookmarkType.id == bookmark_type_id).scalar_subquery().label('is_default')
+    )
     title_id = Column(BigInteger, ForeignKey('titles.id'))
     user_id = Column(BigInteger, ForeignKey('users.id'))
-    is_push_notify = Column(Integer)
 
 class Categories(Base):
     __tablename__ = 'categories'
@@ -210,6 +211,7 @@ class Titles(Base):
     # many_to_many_features
     # categories
     # genres
+    cover=Column(JSON, default={})
     main_name = Column(String(200))
     dir = Column(String(200), unique=True)
     issue_year = Column(Integer, nullable=True)

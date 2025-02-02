@@ -1,4 +1,7 @@
-from models import RawUsers, Titles, TitlesCategories, TitlesGenres
+from pandas.core.interchange.dataframe_protocol import Column
+from rectools import Columns
+
+from models import RawUsers, Titles, TitlesCategories, TitlesGenres, Bookmarks
 import warnings
 import os
 import threadpoolctl
@@ -52,9 +55,32 @@ def fetch_data_in_parallel():
             titles_genres_pd = genres_future.result()
 
     return titles_pd, titles_categories_pd, titles_genres_pd
+def map_bookmark_type_id(bookmark_type_id):
+    switcher = {
+        1: 7,
+        2: 8,
+        3: 7,
+        4: 0.1,
+        5: 3,
+        6: 0.1,
+    }
+    return switcher.get(bookmark_type_id, 1)
+class BookmarksPreparer:
+    @staticmethod
+    async def to_interact():
+        with SessionLocal() as db:
+            print(db.query(Bookmarks).limit(5).statement)
+            bookmarks_pd = pd.read_sql_query(db.query(Bookmarks).where(is_default=1).limit(USERS_LIMIT).statement, db.bind)
+            bookmarks_pd.rename({"title_id":Columns.Item, "bookmark_type_id":Columns.Weight}, axis='columns', inplace=True)
+            bookmarks_pd[Columns.Weight] = bookmarks_pd[Columns.Weight].apply(map_bookmark_type_id)
 
+            bookmarks_pd.drop(columns=["id"], inplace=True)
+            return bookmarks_pd
 
 class DataPrepareService:
+    @staticmethod
+    async def get_interactions():
+        return await BookmarksPreparer.to_interact()
     @staticmethod
     async def get_users_features():
         with SessionLocal() as db:
