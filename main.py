@@ -26,7 +26,7 @@ from grpcs.protos import rec_pb2_grpc
 from grpcs.protos.rec_pb2 import UserRetrieveRequest
 from fastapi import Depends, FastAPI
 from grpcs.services.rec import RecService
-from grpcs.services.data_preparer import DataPrepareService, BookmarksPreparer
+from grpcs.services.data_preparer import DataPrepareService, BookmarksPreparer, RatingPraparer
 
 from core.database import SessionLocal
 from fastapi.middleware.cors import CORSMiddleware
@@ -69,10 +69,15 @@ async def train():
 @app.get("/bookmarks")
 async def interactions():
     with ThreadPoolExecutor() as executor:
-        fut = executor.submit(DataPrepareService.get_interactions)
+        fut = executor.submit(BookmarksPreparer.to_interact)
         res = await fut.result()
         return res.to_html()
-
+@app.get("/ratings")
+async def ratings():
+    with ThreadPoolExecutor() as executor:
+        fut = executor.submit(RatingPraparer.to_interact)
+        res = await fut.result()
+        return res.to_html()
 
 @app.get("/rec")
 async def rec(user_id: int, db: Session = Depends(get_db)):

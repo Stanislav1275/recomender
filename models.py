@@ -107,7 +107,7 @@ class Rating(Base):
     id = Column(BigInteger, primary_key=True)
     rating = Column(Integer)
     date = Column(DateTime, nullable=True)
-    is_deleted = Column(Integer)
+    # is_deleted = Column(Integer)
     title_id = Column(BigInteger, ForeignKey('titles.id'))
     user_id = Column(BigInteger, ForeignKey('users.id'))
 
@@ -275,11 +275,12 @@ class UserTitleData(Base):
     __tablename__ = 'user_title_data'
 
     id = Column(BigInteger, primary_key=True)
-    last_read_chapter = Column(BigInteger)
+    # last_read_chapter = Column(BigInteger)
     last_read_date = Column(DateTime, nullable=True)
     title_id = Column(BigInteger, ForeignKey('titles.id'))
     user_id = Column(BigInteger, ForeignKey('users.id'))
-    note = Column(Text, nullable=True)
+    chapter_votes = Column(JSON, nullable=False, default=list)
+    chapter_views = Column(JSON, nullable=False, default=list)
 
 class RawUsers(Base):
     __tablename__ = 'users'

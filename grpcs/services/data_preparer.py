@@ -1,7 +1,10 @@
+from datetime import timedelta
+
 from pandas.core.interchange.dataframe_protocol import Column
 from rectools import Columns
+from sqlalchemy import func
 
-from models import RawUsers, Titles, TitlesCategories, TitlesGenres, Bookmarks
+from models import RawUsers, Titles, TitlesCategories, TitlesGenres, Bookmarks, Rating
 import warnings
 import os
 import threadpoolctl
@@ -12,7 +15,7 @@ from utils.cat_chapters import categorize_chapters
 warnings.filterwarnings('ignore')
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 threadpoolctl.threadpool_limits(1, "blas")
-USERS_LIMIT = 10000
+USERS_LIMIT = 20
 
 
 def get_db():
@@ -55,6 +58,18 @@ def fetch_data_in_parallel():
             titles_genres_pd = genres_future.result()
 
     return titles_pd, titles_categories_pd, titles_genres_pd
+
+
+def map_ratings(rating: int):
+    if rating <= 2:
+        return rating * 0.3
+    if rating == 3:
+        return 2
+    if rating == 4:
+        return 3
+    return rating * 0.7
+
+
 def map_bookmark_type_id(bookmark_type_id):
     switcher = {
         1: 7,
@@ -65,22 +80,48 @@ def map_bookmark_type_id(bookmark_type_id):
         6: 0.1,
     }
     return switcher.get(bookmark_type_id, 1)
+
+class UserTitleDataPreparer:
+    @staticmethod
+    async def to_interact():
+        with SessionLocal() as db:
+            user_title_data_pd = db.query(UserTitle).filter_by(is_erotic=False, is_yaoi=False).all()
+
 class BookmarksPreparer:
     @staticmethod
     async def to_interact():
         with SessionLocal() as db:
-            print(db.query(Bookmarks).limit(5).statement)
-            bookmarks_pd = pd.read_sql_query(db.query(Bookmarks).where(is_default=1).limit(USERS_LIMIT).statement, db.bind)
-            bookmarks_pd.rename({"title_id":Columns.Item, "bookmark_type_id":Columns.Weight}, axis='columns', inplace=True)
+            bookmarks_pd = pd.read_sql_query(db.query(Bookmarks).where(is_default=1).limit(USERS_LIMIT).statement,
+                                             db.bind)
+            bookmarks_pd.rename({"title_id": Columns.Item, "bookmark_type_id": Columns.Weight}, axis='columns',
+                                inplace=True)
             bookmarks_pd[Columns.Weight] = bookmarks_pd[Columns.Weight].apply(map_bookmark_type_id)
 
             bookmarks_pd.drop(columns=["id"], inplace=True)
             return bookmarks_pd
 
+
+class RatingPraparer:
+    @staticmethod
+    async def to_interact():
+        with SessionLocal() as db:
+            cur_date = func.current_date()
+            thirty_days_ago = cur_date - timedelta(days=1000)
+            # .filter(Rating.date.between(thirty_days_ago, cur_date))
+            query = db.query(Rating).limit(USERS_LIMIT).statement
+            ratings_pd = pd.read_sql_query(query, db.bind)
+            ratings_pd.rename({"date": "datetime", "title_id": Columns.Item, "rating": Columns.Weight}, axis='columns',
+                              inplace=True)
+            ratings_pd.drop(columns=["id"], inplace=True)
+            ratings_pd[Columns.Weight] = ratings_pd[Columns.Weight].apply(map_ratings)
+            return ratings_pd
+
+
 class DataPrepareService:
     @staticmethod
     async def get_interactions():
         return await BookmarksPreparer.to_interact()
+
     @staticmethod
     async def get_users_features():
         with SessionLocal() as db:

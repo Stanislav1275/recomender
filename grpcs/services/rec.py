@@ -47,11 +47,12 @@ class RecService:
     async def train():
         user_features = await DataPrepareService.get_users_features()
         items_features = await DataPrepareService.get_titles_features()
-        interactions = pandas.DataFrame({Columns.User: [1, 1, 2], Columns.Item: [3, 7, 8],
+        interactions = pandas.DataFrame({Columns.Item: [3, 7, 8], Columns.User: [1, 1, 2],
                                          Columns.Datetime: [pandas.to_datetime("now"), pandas.to_datetime("now"),
                                                             pandas.to_datetime("now")], Columns.Weight: [1, 3, 5]})
 
         RANDOM_STATE = 60
+
 
         model = LightFMWrapperModel(LightFM(no_components=10, loss="bpr", random_state=RANDOM_STATE))
         try:
@@ -62,17 +63,17 @@ class RecService:
                 item_features_df=items_features,
                 cat_item_features=["type_id", "genres", "categories", "count_chapters", "age_limit"],
             )
-
             with open('model/dataset.pkl', 'wb') as f:
                 pickle.dump(dataset, f)
-            model.fit(dataset)
 
 
         except Exception as e:
             logger.error(f"Error during training: {e}")
             print(model)
         print(1)
+
         model.save(f="model/model.csv")
+        # model._fit_partial(dataset=Dataset.construct())
 
 # import numpy as np
 # import pandas as pd
