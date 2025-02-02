@@ -139,5 +139,5 @@ if __name__ == '__main__':
     print(f"Serving grpcs thread 1")
     grpc_thread.start()
     msk_tz = pytz.timezone('Europe/Moscow')
-    scheduler.add_job(RecService.train, 'cron', hour=4, minute=0, time)
+    scheduler.add_job(RecService.train, 'cron', hour=4, minute=0, timezone=msk_tz)
     uvicorn.run(app, host="0.0.0.0", port=8000, workers=1)
