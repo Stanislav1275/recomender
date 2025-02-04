@@ -1,30 +1,42 @@
 syntax = "proto3";
-package  rec;
-service RecService {
-    rpc GetUser (UserRetrieveRequest) returns (UserResponse) {};
-}
-message RecResponse {
-  int32 id = 1;
-  string cover = 2;
 
-}
-message UserResponse {
-  int32 id = 1;
-  string last_login = 2;
-  int32 is_superuser = 3;
-  int32 is_staff = 4;
-  int32 is_active = 5;
-  string date_joined = 6;
-  string last_seen_date = 7;
-  int32 yaoi = 8;
-  int32 adult = 9;
-  int32 preference = 10;
-  int32 is_banned = 11;
-  optional string birthday = 12;
-  int32 sex = 13;
-  int32 is_premium = 14;
+package recommendations;
+
+// Сервис для работы с рекомендациями
+service Recommender {
+  // Получить рекомендации для пользователя
+  rpc GetUserRecommendations (UserRequest) returns (RecommendationResponse);
+
+  // Получить рекомендации для товара
+  rpc GetItemRecommendations (ItemRequest) returns (RecommendationResponse);
+
+  // Обучить модель
+  rpc TrainModel (TrainRequest) returns (TrainResponse);
 }
 
-message UserRetrieveRequest {
-  int32 id = 1;
+// Запрос для получения рекомендаций для пользователя
+message UserRequest {
+  int32 user_id = 1;  // ID пользователя
+}
+
+// Запрос для получения рекомендаций для товара
+message ItemRequest {
+  int32 item_id = 1;  // ID товара
+}
+
+// Ответ с рекомендациями
+message RecommendationResponse {
+  repeated int32 item_ids = 1;  // Список рекомендованных товаров
+}
+
+// Запрос для обучения модели
+message TrainRequest {
+  bool force_retrain = 1;  // Принудительное переобучение модели
+}
+
+// Ответ после обучения модели
+message TrainResponse {
+  bool success = 1;  // Успешно ли прошло обучение
+  string message = 2;  // Сообщение (например, ошибка или статус)
+  int32 version = 3;  // Версия модели после обучения
 }

@@ -1,4 +1,3 @@
-import logging
 import pathlib
 import pickle
 import shutil
@@ -19,6 +18,8 @@ from rectools.models.lightfm import LightFMWrapperModelConfig
 from grpcs.services.data_preparer import DataPrepareService
 
 warnings.filterwarnings('ignore')
+import logging
+
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
@@ -38,9 +39,53 @@ class ModelManager:
         return cls._instance
 
     def _init_model(self):
+        """Инициализация модели при старте приложения."""
         model_path, dataset_path = self._current_paths
+
+        # Если модель и датасет существуют, загружаем их
         if model_path.exists() and dataset_path.exists():
             self._load_from_disk(model_path, dataset_path)
+        else:
+            # Если модель или датасет отсутствуют, запускаем обучение
+            logger.warning("Model or dataset not found. Starting training...")
+            try:
+                # Синхронный вызов асинхронного метода через asyncio.run
+                asyncio.run(self._train_on_startup())
+            except Exception as e:
+                logger.error(f"Failed to train model on startup: {str(e)}")
+                raise
+
+    async def _train_on_startup(self):
+        """Запуск обучения при старте приложения, если модель отсутствует."""
+        try:
+            # Загрузка данных
+            user_features = await DataPrepareService.get_users_features()
+            items_features = await DataPrepareService.get_titles_features()
+            interactions = await DataPrepareService.get_interactions()
+
+            # Создание модели
+            model = LightFMWrapperModel(LightFM(
+                no_components=10,
+                loss="bpr",
+                random_state=60
+            ))
+
+            # Построение датасета
+            dataset = Dataset.construct(
+                interactions_df=interactions,
+                user_features_df=user_features,
+                cat_user_features=["age_group", "sex", "preference"],
+                item_features_df=items_features,
+                cat_item_features=["type_id", "genres", "categories", "count_chapters", "age_limit"],
+            )
+
+            # Обучение и сохранение
+            model.fit(dataset)
+            await self.update_model(model, dataset)
+            logger.info("Model trained and saved successfully on startup.")
+        except Exception as e:
+            logger.error(f"Training on startup failed: {str(e)}")
+            raise
 
     @property
     def _current_paths(self) -> Tuple[pathlib.Path, pathlib.Path]:
@@ -50,6 +95,7 @@ class ModelManager:
         )
 
     def _load_from_disk(self, model_path: pathlib.Path, dataset_path: pathlib.Path):
+        """Загрузка модели и датасета с диска."""
         with self._rw_lock:
             try:
                 with open(dataset_path, 'rb') as f:
@@ -63,6 +109,7 @@ class ModelManager:
 
     @contextmanager
     def _atomic_writer(self, path: pathlib.Path):
+        """Атомарная запись файлов через временный файл."""
         temp = path.with_suffix(".tmp")
         try:
             yield temp
@@ -72,42 +119,48 @@ class ModelManager:
                 temp.unlink()
 
     async def update_model(self, model: ModelBase, dataset: Dataset):
+        """Обновление модели и датасета."""
         async with self._file_lock:
             with self._rw_lock:
                 model_path, dataset_path = self._current_paths
                 prev_dir = pathlib.Path("data/prev")
                 prev_dir.mkdir(exist_ok=True, parents=True)
 
+                # Сохраняем во временные файлы
                 with self._atomic_writer(model_path) as tmp_model, \
                         self._atomic_writer(dataset_path) as tmp_dataset:
-
                     model.save(str(tmp_model))
                     with open(tmp_dataset, 'wb') as f:
                         pickle.dump(dataset, f)
 
+                # Обновляем кэш
                 self._model = model
                 self._dataset = dataset
                 self._version += 1
                 logger.info(f"Updated model to version {self._version}")
 
+                # Сохраняем предыдущую версию
                 if model_path.exists():
                     shutil.move(str(model_path), str(prev_dir / "model.csv"))
                 if dataset_path.exists():
                     shutil.move(str(dataset_path), str(prev_dir / "dataset.pkl"))
 
     async def get_model(self) -> Tuple[ModelBase, Dataset]:
+        """Получение текущей модели и датасета."""
         if self._model is None or self._dataset is None:
             raise ValueError("Model not initialized")
         return self._model, self._dataset
 
     @property
     def current_version(self) -> int:
+        """Текущая версия модели."""
         return self._version
 
 
 class RecService:
     @staticmethod
     async def _handle_request(context: grpc.ServicerContext):
+        """Общая обработка ошибок для всех методов."""
         try:
             if ModelManager()._model is None:
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "Model not initialized")
@@ -147,16 +200,19 @@ class RecService:
     @staticmethod
     async def train(context: grpc.ServicerContext):
         try:
+            # Загрузка данных
             user_features = await DataPrepareService.get_users_features()
             items_features = await DataPrepareService.get_titles_features()
             interactions = await DataPrepareService.get_interactions()
 
+            # Создание модели
             model = LightFMWrapperModel(LightFM(
                 no_components=10,
                 loss="bpr",
                 random_state=60
             ))
 
+            # Построение датасета
             dataset = Dataset.construct(
                 interactions_df=interactions,
                 user_features_df=user_features,
@@ -165,6 +221,7 @@ class RecService:
                 cat_item_features=["type_id", "genres", "categories", "count_chapters", "age_limit"],
             )
 
+            # Обучение и сохранение
             model.fit(dataset)
             await ModelManager().update_model(model, dataset)
 

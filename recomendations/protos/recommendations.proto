@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package recommendations;
+
+service Recommender {
+  rpc GetUserRecommendations (UserRequest) returns (RecommendationResponse);
+  rpc GetTitleRelevant (TitleRequest) returns (RecommendationResponse);
+  rpc TrainModel (TrainRequest) returns (TrainResponse);
+}
+
+message UserRequest {
+  int32 user_id = 1;
+}
+message TitleRequest {
+  int32 title_id = 1;
+}
+message RecommendationResponse {
+  repeated int32 item_ids = 1;
+}
+
+message TrainRequest {
+  bool force_retrain = 1;
+}
+
+message TrainResponse {
+  bool success = 1;
+  string message = 2;
+  int32 version = 3;
+}

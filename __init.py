@@ -1,0 +1,1 @@
+# python -m grpc_tools.protoc -I./recomendations/protos --python_out=./recomendations/protos --pyi_out=./recomendations/protos --grpc_python_out=./recomendations/protos ./recomendations/protos/recommendations.proto
