@@ -1,22 +1,17 @@
 import pickle
 
-import pandas
 import warnings
-import numpy as np
 #
 from lightfm import LightFM
 #
 
-import faulthandler
-from grpcs.services.data_preparer import DataPrepareService
-from implicit.nearest_neighbours import TFIDFRecommender
+from recommendations.data_preparer import DataPrepareService
 
 warnings.filterwarnings('ignore')
 # from lightfm import LightFM
 import logging
-from rectools import Columns
 from rectools.dataset import Dataset
-from rectools.models import ImplicitItemKNNWrapperModel, LightFMWrapperModel, load_model
+from rectools.models import LightFMWrapperModel
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)

@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 from core.database import SessionLocal
 from grpcs.mappers.rec_mappers import UserMapper
 from grpcs.protos import rec_pb2, rec_pb2_grpc
-from  models import RawUsers
+from models import RawUsers
+
 
 def get_db():
     db = SessionLocal()
@@ -44,6 +45,7 @@ def serve():
     except KeyboardInterrupt:
         server.stop(0)
     print('gRPC server running on port 500511')
+
 
 if __name__ == '__main__':
     serve()
