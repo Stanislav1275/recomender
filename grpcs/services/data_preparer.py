@@ -16,7 +16,7 @@ from utils.cat_chapters import categorize_chapters
 warnings.filterwarnings('ignore')
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 threadpoolctl.threadpool_limits(1, "blas")
-USERS_LIMIT = 20000000
+USERS_LIMIT = 100
 
 
 def get_db():

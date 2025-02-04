@@ -15,5 +15,5 @@ grpcs/*/*.dat
 /grpcs/services/data_en/data_en/users_en.csv
 model/*.csv
 model/*.pkl
-model/dataset.pkl
-model/model.csv
+data/dataset.pkl
+data/model.csv
