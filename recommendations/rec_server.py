@@ -7,10 +7,25 @@ from recommendations.rec_service import ModelManager
 
 
 class RecommenderService(recommendations_pb2_grpc.RecommenderServicer):
+    async def Train(self, request, context):
+        from recommendations.rec_service import RecService
+        try:
+            recos = await RecService.relevant(request.title_id, context)
+            return RecommendationResponse(item_ids=recos)
+        except Exception as e:
+            await context.abort(grpc.StatusCode.INTERNAL, str(e))
+
     async def GetUserRecommendations(self, request, context):
         from recommendations.rec_service import RecService
         try:
             recos = await RecService.rec(request.user_id, context)
+            return RecommendationResponse(item_ids=recos)
+        except Exception as e:
+            await context.abort(grpc.StatusCode.INTERNAL, str(e))
+    async def GetTitleRelevant(self, request, context):
+        from recommendations.rec_service import RecService
+        try:
+            recos = await RecService.relevant(request.title_id, context)
             return RecommendationResponse(item_ids=recos)
         except Exception as e:
             await context.abort(grpc.StatusCode.INTERNAL, str(e))

@@ -1,8 +1,16 @@
 # main.py
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException
 import grpc
 from concurrent import futures
 import asyncio
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from starlette.responses import JSONResponse
+
+from core.database import SessionLocal
+from models import Titles
+from recommendations.data_preparer import get_db
 from recommendations.protos.recommendations_pb2_grpc import add_RecommenderServicer_to_server
 from recommendations.rec_server import RecommenderService
 from recommendations.rec_service import ModelManager, RecService
@@ -36,6 +44,25 @@ async def shutdown_event():
     if RecService._scheduler:
         RecService._scheduler.shutdown()
     print("Services stopped")
+
+
+@app.get("/titles/recommendations")
+async def rec_by_users(user_id: int, db: Session = Depends(get_db)):
+    try:
+        model, dataset = await ModelManager().get_model()
+        recos = model.recommend(users=[user_id], dataset=dataset, k=40, filter_viewed=True)
+        item_ids = recos['item_id'].tolist()
+        stmt = select(Titles).where(Titles.id.in_(item_ids))
+
+        order = {id_: idx for idx, id_ in enumerate(item_ids)}
+        result = db.execute(stmt).scalars().all()
+
+        sorted_result = sorted(result, key=lambda x: order.get(x.id, len(item_ids)))
+
+        return sorted_result
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.get("/health")

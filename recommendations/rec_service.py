@@ -66,7 +66,7 @@ class ModelManager:
                 user_features_df=user_features,
                 cat_user_features=["age_group", "sex", "preference"],
                 item_features_df=items_features,
-                cat_item_features=["type_id", "genres", "categories", "count_chapters", "age_limit"],
+                cat_item_features=["type_id", "genres", "categories", "count_chapters", "age_limit", "relation_list"],
             )
 
             model = LightFMWrapperModel(LightFM(no_components=10, loss="bpr", random_state=60))
@@ -187,6 +187,23 @@ class RecService:
             logger.error(f"🚨 Scheduled training failed: {str(e)}")
 
     @staticmethod
+    async def relevant(item_id: int, context: grpc.ServicerContext):
+        await RecService._handle_request(context)
+        try:
+            model, dataset = await ModelManager().get_model()
+            logger.debug(f"Using model: {model}")
+
+            recos = model.recommend_to_items(
+                target_items=[item_id],
+                dataset=dataset,
+                k=40,
+                filter_itself=True,
+            )
+            return recos['item_id'].tolist()
+        except Exception as e:
+            logger.error(f"🚨 Recommendation error: {str(e)}")
+            await context.abort(grpc.StatusCode.INTERNAL, f"Recommendation error: {str(e)}")
+    @staticmethod
     async def train(context: Optional[grpc.ServicerContext] = None):
         try:
             user_features = await DataPrepareService.get_users_features()
@@ -199,7 +216,7 @@ class RecService:
                 user_features_df=user_features,
                 cat_user_features=["age_group", "sex", "preference"],
                 item_features_df=items_features,
-                cat_item_features=["type_id", "genres", "categories", "count_chapters", "age_limit"],
+                cat_item_features=["type_id", "genres", "categories", "count_chapters", "age_limit",  "relation_list"],
             )
 
             model.fit(dataset)

@@ -4,6 +4,7 @@ from sqlalchemy.orm import relationship, column_property
 
 from core.database import Base  # Импортируйте Base из вашего файла database.py
 
+
 class BookmarkType(Base):
     __tablename__ = 'bookmark_type'
 
@@ -13,6 +14,7 @@ class BookmarkType(Base):
     is_visible = Column(Integer)
     is_notify = Column(Integer)
     user_id = Column(BigInteger, ForeignKey('users.id'), nullable=True)
+
 
 class Bookmarks(Base):
     __tablename__ = 'bookmarks'
@@ -27,6 +29,7 @@ class Bookmarks(Base):
     title_id = Column(BigInteger, ForeignKey('titles.id'))
     user_id = Column(BigInteger, ForeignKey('users.id'))
 
+
 class Categories(Base):
     __tablename__ = 'categories'
 
@@ -35,12 +38,14 @@ class Categories(Base):
     description = Column(Text)
     dir = Column(String(120))
 
+
 class CategoriesSites(Base):
     __tablename__ = 'categories_sites'
 
     id = Column(BigInteger, primary_key=True)
     category_id = Column(BigInteger, ForeignKey('categories.id'))
     site_id = Column(BigInteger, ForeignKey('django_site.id'))
+
 
 class Collections(Base):
     __tablename__ = 'collections'
@@ -57,6 +62,7 @@ class Collections(Base):
     count_comments = Column(Integer)
     score = Column(Integer)
 
+
 class Comments(Base):
     __tablename__ = 'comments'
 
@@ -70,12 +76,14 @@ class Comments(Base):
     title_id = Column(BigInteger, ForeignKey('titles.id'), nullable=True)
     user_id = Column(BigInteger, ForeignKey('users.id'))
 
+
 class DjangoSite(Base):
     __tablename__ = 'django_site'
 
     id = Column(BigInteger, primary_key=True)
     domain = Column(String(100), unique=True)
     name = Column(String(50))
+
 
 class Genres(Base):
     __tablename__ = 'genres'
@@ -85,12 +93,14 @@ class Genres(Base):
     description = Column(Text)
     dir = Column(String(120))
 
+
 class GenresSites(Base):
     __tablename__ = 'genres_sites'
 
     id = Column(BigInteger, primary_key=True)
     genre_id = Column(BigInteger, ForeignKey('genres.id'))
     site_id = Column(BigInteger, ForeignKey('django_site.id'))
+
 
 class Payments(Base):
     __tablename__ = 'payments'
@@ -100,6 +110,7 @@ class Payments(Base):
     status = Column(Integer)
     date = Column(DateTime)
     user_id = Column(BigInteger, ForeignKey('users.id'), nullable=True)
+
 
 class Rating(Base):
     __tablename__ = 'rating'
@@ -111,17 +122,27 @@ class Rating(Base):
     title_id = Column(BigInteger, ForeignKey('titles.id'))
     user_id = Column(BigInteger, ForeignKey('users.id'))
 
+
 class SimilarTitles(Base):
     __tablename__ = 'similar_titles'
 
     id = Column(BigInteger, primary_key=True)
+    # стоит ли отрисовывать
     draw = Column(Integer, nullable=True)
+    # совпадает жанр
+
     genre = Column(Integer, nullable=True)
+    # совпадает история
+
     history = Column(Integer, nullable=True)
+    # колво голосов
+
     score = Column(Integer)
     title1_id = Column(BigInteger, ForeignKey('titles.id'))
     title2_id = Column(BigInteger, ForeignKey('titles.id'))
+    # создатель связи title1_id title2_id
     user_id = Column(BigInteger, ForeignKey('users.id'), nullable=True)
+
 
 class SimilarTitlesVotes(Base):
     __tablename__ = 'similar_titles_votes'
@@ -132,6 +153,7 @@ class SimilarTitlesVotes(Base):
     similar_id = Column(BigInteger, ForeignKey('similar_titles.id'))
     user_id = Column(BigInteger, ForeignKey('users.id'))
 
+
 class TagsTags(Base):
     __tablename__ = 'tags'
 
@@ -139,6 +161,7 @@ class TagsTags(Base):
     name = Column(String(30), unique=True)
     description = Column(Text)
     dir = Column(String(120))
+
 
 class TitlePromotion(Base):
     __tablename__ = 'title_promotion'
@@ -159,6 +182,7 @@ class TitlePromotion(Base):
     render_count_day = Column(Integer)
     click_count_day = Column(Integer)
 
+
 class TitleStatistics(Base):
     __tablename__ = 'title_statistics'
 
@@ -172,11 +196,13 @@ class TitleStatistics(Base):
     m_views = Column(BigInteger)
     m_votes = Column(BigInteger)
 
+
 class TitleStatus(Base):
     __tablename__ = 'title_status'
 
     id = Column(BigInteger, primary_key=True)
     name = Column(String(30), unique=True)
+
 
 class TitleStatusSites(Base):
     __tablename__ = 'title_status_sites'
@@ -184,6 +210,7 @@ class TitleStatusSites(Base):
     id = Column(BigInteger, primary_key=True)
     titlestatus_id = Column(BigInteger, ForeignKey('title_status.id'))
     site_id = Column(BigInteger, ForeignKey('django_site.id'))
+
 
 class TitleType(Base):
     __tablename__ = 'title_type'
@@ -193,12 +220,14 @@ class TitleType(Base):
     description = Column(Text)
     dir = Column(String(120))
 
+
 class TitleTypeSites(Base):
     __tablename__ = 'title_type_sites'
 
     id = Column(BigInteger, primary_key=True)
     titletype_id = Column(BigInteger, ForeignKey('title_type.id'))
     site_id = Column(BigInteger, ForeignKey('django_site.id'))
+
 
 class Titles(Base):
     __tablename__ = 'titles'
@@ -211,7 +240,7 @@ class Titles(Base):
     # many_to_many_features
     # categories
     # genres
-    cover=Column(JSON, default={})
+    cover = Column(JSON, default={})
     main_name = Column(String(200))
     dir = Column(String(200), unique=True)
     issue_year = Column(Integer, nullable=True)
@@ -223,18 +252,23 @@ class Titles(Base):
     avg_rating = Column(DECIMAL(10, 1))
     uploaded = Column(Integer)
     is_legal = Column(Integer)
+
+
 class TitlesGenres(Base):
     __tablename__ = 'titles_genres'
 
     id = Column(BigInteger, primary_key=True)
     title_id = Column(BigInteger, ForeignKey('titles.id'))
     genre_id = Column(BigInteger, ForeignKey('genres.id'))
+
+
 class TitlesCategories(Base):
     __tablename__ = 'titles_categories'
 
     id = Column(BigInteger, primary_key=True)
     title_id = Column(BigInteger, ForeignKey('titles.id'))
     category_id = Column(BigInteger, ForeignKey('categories.id'))
+
 
 class TitlesCollections(Base):
     __tablename__ = 'titles_collections'
@@ -245,13 +279,13 @@ class TitlesCollections(Base):
     title_id = Column(BigInteger, ForeignKey('titles.id'))
 
 
-
 class TitlesSites(Base):
     __tablename__ = 'titles_sites'
 
     id = Column(BigInteger, primary_key=True)
     title_id = Column(BigInteger, ForeignKey('titles.id'))
     site_id = Column(BigInteger, ForeignKey('django_site.id'))
+
 
 class TitleChapter(Base):
     __tablename__ = 'title_chapters'
@@ -262,6 +296,7 @@ class TitleChapter(Base):
     is_deleted = Column(Boolean)
     title_id = Column(BigInteger, ForeignKey('titles.id'))
 
+
 class UserBuys(Base):
     __tablename__ = 'user_buys'
 
@@ -270,6 +305,7 @@ class UserBuys(Base):
     chapter_id = Column(BigInteger, ForeignKey('title_chapters.id'))
     payment_id = Column(BigInteger, ForeignKey('payments.id'), nullable=True)
     user_id = Column(BigInteger, ForeignKey('users.id'), nullable=True)
+
 
 class UserTitleData(Base):
     __tablename__ = 'user_title_data'
@@ -281,6 +317,7 @@ class UserTitleData(Base):
     user_id = Column(BigInteger, ForeignKey('users.id'))
     chapter_votes = Column(JSON, nullable=False)
     chapter_views = Column(JSON, nullable=False)
+
 
 class RawUsers(Base):
     __tablename__ = 'users'
@@ -299,3 +336,31 @@ class RawUsers(Base):
     birthday = Column(Date, nullable=True)
     sex = Column(Integer)
     is_premium = Column(Integer)
+
+
+class TitlesTitleRelation(Base):
+    __tablename__ = 'titles_titlerelation'
+
+    id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+        autoincrement=True
+    )
+    type = Column(
+        String(20),
+        nullable=False
+    )
+    position = Column(
+        SmallInteger(),
+        nullable=False
+    )
+    title_id = Column(
+        BigInteger,
+        ForeignKey('titles.id'),
+        nullable=False
+    )
+    relation_list_id = Column(
+        BigInteger,
+        ForeignKey('title_relations_lists.id'),
+        nullable=True
+    )

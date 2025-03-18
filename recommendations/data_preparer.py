@@ -1,22 +1,20 @@
-from datetime import timedelta, datetime
+from datetime import timedelta
 
-import pytz
-from pandas.core.interchange.dataframe_protocol import Column
 from rectools import Columns
 from sqlalchemy import func
 
-from models import RawUsers, Titles, TitlesCategories, TitlesGenres, Bookmarks, Rating, UserTitleData
+from models import RawUsers, Bookmarks, Rating, UserTitleData,  \
+    TitlesTitleRelation
 import warnings
 import os
 import threadpoolctl
-import json
 from utils.age_group import calculate_age_group
 from utils.cat_chapters import categorize_chapters
 
 warnings.filterwarnings('ignore')
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 threadpoolctl.threadpool_limits(1, "blas")
-USERS_LIMIT = 100
+USERS_LIMIT = 3000000
 
 
 def get_db():
@@ -29,9 +27,10 @@ def get_db():
 
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
-from sqlalchemy.orm import Session
 from core.database import SessionLocal
 from models import Titles, TitlesCategories, TitlesGenres
+
+MIN_VOTES = 100
 
 
 def fetch_data_in_parallel():
@@ -40,12 +39,12 @@ def fetch_data_in_parallel():
             # Define tasks for parallel execution
             titles_future = executor.submit(
                 pd.read_sql_query,
-                db.query(Titles).filter_by(is_erotic=False, is_yaoi=False).limit(USERS_LIMIT).statement,
+                db.query(Titles).filter_by(is_erotic=0, is_yaoi=0, is_legal=1).order_by(None).limit(USERS_LIMIT).statement,
                 db.bind
             )
             categories_future = executor.submit(
                 pd.read_sql_query,
-                db.query(TitlesCategories).limit(USERS_LIMIT).statement,
+                db.query(TitlesCategories).limit(300000).statement,
                 db.bind
             )
             genres_future = executor.submit(
@@ -53,12 +52,24 @@ def fetch_data_in_parallel():
                 db.query(TitlesGenres).limit(USERS_LIMIT).statement,
                 db.bind
             )
+            # similar_future = executor.submit(
+            #     pd.read_sql_query,
+            #     db.query(SimilarTitles).limit(USERS_LIMIT).statement,
+            #     db.bind
+            # )
+            relations_future = executor.submit(
+                pd.read_sql_query,
+                db.query(TitlesTitleRelation).limit(USERS_LIMIT).statement,
+                db.bind
+            )
 
             titles_pd = titles_future.result()
             titles_categories_pd = categories_future.result()
             titles_genres_pd = genres_future.result()
+            titles_relations_pd = relations_future.result()
+            # similar_titles_pd = similar_future.result()
 
-    return titles_pd, titles_categories_pd, titles_genres_pd
+    return titles_pd, titles_categories_pd, titles_genres_pd, titles_relations_pd
 
 
 def map_ratings(rating: int):
@@ -87,7 +98,11 @@ class UserTitleDataPreparer:
     @staticmethod
     async def to_interact():
         with SessionLocal() as db:
-            user_title_data_pd = pd.read_sql_query(db.query(UserTitleData).statement.limit(USERS_LIMIT), db.bind)
+            cur_date = func.current_date()
+            thirty_days_ago = cur_date - timedelta(days=1000)
+            user_title_data_pd = pd.read_sql_query(
+                db.query(UserTitleData).filter(UserTitleData.last_read_date >= thirty_days_ago).statement.limit(
+                    USERS_LIMIT), db.bind)
             user_title_data_pd.rename({"last_read_date": Columns.Datetime}, inplace=True)
             new_rows = []
 
@@ -138,7 +153,7 @@ class RatingPraparer:
             cur_date = func.current_date()
             thirty_days_ago = cur_date - timedelta(days=1000)
             # .filter(Rating.date.between(thirty_days_ago, cur_date))
-            query = db.query(Rating).limit(USERS_LIMIT).statement
+            query = db.query(Rating).filter(Rating.date >= thirty_days_ago).limit(USERS_LIMIT).statement
             ratings_pd = pd.read_sql_query(query, db.bind)
             ratings_pd.rename({"date": Columns.Datetime, "title_id": Columns.Item, "rating": Columns.Weight},
                               axis='columns',
@@ -160,10 +175,19 @@ class DataPrepareService:
         return combined_df
 
     @staticmethod
+    async def get_interactions_sets():
+        # todo parallel
+        bookmarks = await BookmarksPreparer.to_interact()
+        ratings = await RatingPraparer.to_interact()
+        user_title_data = await UserTitleDataPreparer.to_interact()
+        combined_df = pd.concat([bookmarks, ratings, user_title_data], ignore_index=True)
+        return combined_df
+
+    @staticmethod
     async def get_users_features():
         with SessionLocal() as db:
             users_pd = pd.read_sql_query(
-                db.query(RawUsers).filter_by(is_banned=False, is_active=True).limit(USERS_LIMIT).statement,
+                db.query(RawUsers).filter_by(is_banned=0, is_active=1).limit(USERS_LIMIT).statement,
                 db.bind
             )
             users_pd.fillna('Unknown', inplace=True)
@@ -182,24 +206,49 @@ class DataPrepareService:
 
     @staticmethod
     async def get_titles_features():
-        titles_pd, titles_categories_pd, titles_genres_pd = fetch_data_in_parallel()
+        titles_pd, titles_categories_pd, titles_genres_pd, relations_pd = fetch_data_in_parallel()
 
-        titles_pd.fillna('Unknown', inplace=True)
+        # Обработка relations
+        if not relations_pd.empty:
+            relations_agg = (
+                relations_pd
+                .sort_values('id')
+                .groupby('title_id')['relation_list_id']
+                .first()
+                .reset_index(name='relation_list')
+            )
+        else:
+            relations_agg = pd.DataFrame(columns=['title_id', 'relation_list'])
 
-        titles_categories_agg = titles_categories_pd.groupby('title_id')['category_id'].apply(
-            lambda x: ' '.join(map(str, sorted(x)))).reset_index()
-        titles_genres_agg = titles_genres_pd.groupby('title_id')['genre_id'].apply(
-            lambda x: ' '.join(map(str, sorted(x)))).reset_index()
+        # Обработка категорий и жанров
+        titles_genres_agg = titles_genres_pd.groupby('title_id')['genre_id'].apply(list).reset_index()
+        titles_categories_agg = titles_categories_pd.groupby('title_id')['category_id'].apply(list).reset_index()
 
+        # Слияние данных
         titles_features = pd.merge(titles_pd, titles_categories_agg, left_on='id', right_on='title_id', how='left')
         titles_features = pd.merge(titles_features, titles_genres_agg, left_on='id', right_on='title_id', how='left')
+        titles_features = pd.merge(titles_features, relations_agg, left_on='id', right_on='title_id', how='left')
 
-        titles_features['category_id'].fillna('0', inplace=True)
-        titles_features['genre_id'].fillna('0', inplace=True)
+        # Заполнение пропусков
+        titles_features['category_id'] = titles_features['category_id'].fillna('0')
+        titles_features['genre_id'] = titles_features['genre_id'].fillna('0')
         titles_features.rename(columns={'category_id': 'categories', 'genre_id': 'genres'}, inplace=True)
-        titles_features['count_chapters'] = titles_features['count_chapters'].apply(categorize_chapters)
 
-        features = ['status_id', 'age_limit', 'count_chapters', 'type_id', 'categories', 'genres']
-        titles_features_long = pd.melt(titles_features, id_vars=['id'], value_vars=features,
-                                       var_name='feature', value_name='value', ignore_index=True)
+        # Обработка count_chapters
+        titles_features['count_chapters'] = titles_features['count_chapters'].fillna(0).apply(categorize_chapters)
+
+        # Проверка и заполнение relation_list
+        if 'relation_list' not in titles_features.columns:
+            titles_features['relation_list'] = 0
+        titles_features['relation_list'] = titles_features['relation_list'].fillna(0).astype('Int64')
+
+        # Формирование финального DataFrame
+        features = ['status_id', 'age_limit', 'count_chapters', 'type_id', 'categories', 'genres', 'relation_list']
+        titles_features_long = titles_features.melt(
+            id_vars=['id'],
+            value_vars=features,
+            var_name='feature',
+            value_name='value'
+        ).explode('value')
+
         return titles_features_long
