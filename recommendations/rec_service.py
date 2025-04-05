@@ -1,5 +1,4 @@
 import logging
-import os
 import pathlib
 import pickle
 import shutil
@@ -7,17 +6,20 @@ import asyncio
 import grpc
 from typing import Tuple, Optional
 from threading import RLock
+
+import pandas as pd
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
 
 import warnings
 from lightfm import LightFM
-from rectools.dataset import Dataset
+from pandas import DataFrame
+from rectools.dataset import Dataset, Interactions
 from rectools.models import LightFMWrapperModel, load_model
 from rectools.models.base import ModelBase
 
-from recommendations.data_preparer import DataPrepareService
+from recommendations.data_preparer import DataPrepareService, BlacklistManager
 
 warnings.filterwarnings('ignore')
 logging.basicConfig(level=logging.DEBUG)
@@ -52,11 +54,26 @@ class ModelManager:
             logger.warning("Модель или датасет отсутствуют. Начинаем обучение...")
             await self.train()
 
+    #         title_id:int
+    # typer-imp_read_chapter, imp_view_chapter, exp_rating, imp_view, exp_custom
+    #  exp_weight?: int
+    # dasdsadasdsad
+    async def fit_partial(self, new_interactions: DataFrame = None, new_user_features: DataFrame = None):
+        model, currentDataset = await self.get_model()
+        if not model.is_fitted:
+            print("model is not fitted to partial fit")
+            return
+
+        await self.update_model(model)
+
     async def train(self):
         try:
+            await BlacklistManager.refresh_blacklist()
+
             user_features = await DataPrepareService.get_users_features()
             items_features = await DataPrepareService.get_titles_features()
             interactions = await DataPrepareService.get_interactions()
+            print(interactions.head(50))
 
             if interactions.empty:
                 raise ValueError("Данные взаимодействий пусты. Обучение невозможно.")
@@ -69,11 +86,10 @@ class ModelManager:
                 cat_item_features=["type_id", "genres", "categories", "count_chapters", "age_limit", "relation_list"],
             )
 
-            model = LightFMWrapperModel(LightFM(no_components=10, loss="bpr", random_state=60))
+            model = LightFMWrapperModel(LightFM(no_components=20, loss="bpr", random_state=60),  num_threads=3, epochs=2)
 
             logger.info("Начинаем обучение модели...")
             model.fit(dataset)
-
             if not model.is_fitted:
                 raise ValueError("Ошибка! Модель не обучилась!")
 
@@ -102,7 +118,7 @@ class ModelManager:
                 logger.error(f"Ошибка загрузки модели: {e}")
                 raise
 
-    async def update_model(self, model: ModelBase, dataset: Dataset):
+    async def update_model(self, model: ModelBase, dataset: Dataset = None):
         async with self._file_lock:
             with self._rw_lock:
                 model_path, dataset_path = self._current_paths
@@ -112,18 +128,32 @@ class ModelManager:
                 cur_dir.mkdir(parents=True, exist_ok=True)
                 try:
                     logger.info("Сохраняем новую модель...")
+                    # Сохраняем модель
                     tmp_model_path = model_path.with_suffix(".tmp")
-                    tmp_dataset_path = dataset_path.with_suffix(".tmp")
                     model.save(str(tmp_model_path))
-                    with open(tmp_dataset_path, 'wb') as dataset_file:
-                        pickle.dump(dataset, dataset_file)
+
+                    # Сохраняем датасет, только если он передан
+                    if dataset is not None:
+                        tmp_dataset_path = dataset_path.with_suffix(".tmp")
+                        with open(tmp_dataset_path, 'wb') as dataset_file:
+                            pickle.dump(dataset, dataset_file)
+
+                    # Перемещаем старые файлы в папку prev (если они существуют)
                     if model_path.exists():
                         shutil.move(str(model_path), str(prev_dir / "model.pkl"))
-                        shutil.move(str(dataset_path), str(prev_dir / "dataset.pkl"))
+                        # Перемещаем датасет только если он обновляется
+                        if dataset is not None and dataset_path.exists():
+                            shutil.move(str(dataset_path), str(prev_dir / "dataset.pkl"))
+
+                    # Заменяем временные файлы на актуальные
                     tmp_model_path.replace(model_path)
-                    tmp_dataset_path.replace(dataset_path)
+                    if dataset is not None:
+                        tmp_dataset_path.replace(dataset_path)
+
+                    # Обновляем модель и датасет (если передан)
                     self._model = model
-                    self._dataset = dataset
+                    if dataset is not None:
+                        self._dataset = dataset
                     self._version += 1
                     logger.info(f"Модель обновлена до версии {self._version}")
                 except Exception as e:
@@ -203,21 +233,27 @@ class RecService:
         except Exception as e:
             logger.error(f"🚨 Recommendation error: {str(e)}")
             await context.abort(grpc.StatusCode.INTERNAL, f"Recommendation error: {str(e)}")
+
     @staticmethod
     async def train(context: Optional[grpc.ServicerContext] = None):
         try:
+            await BlacklistManager.refresh_blacklist()
             user_features = await DataPrepareService.get_users_features()
             items_features = await DataPrepareService.get_titles_features()
             interactions = await DataPrepareService.get_interactions()
+            print(items_features.head())
+            print(interactions.head(50))
 
-            model = LightFMWrapperModel(LightFM(no_components=10, loss="bpr", random_state=60))
+            model = LightFMWrapperModel(LightFM(no_components=20, loss="bpr", random_state=60), num_threads=3, epochs=2)
             dataset = Dataset.construct(
+
                 interactions_df=interactions,
                 user_features_df=user_features,
                 cat_user_features=["age_group", "sex", "preference"],
                 item_features_df=items_features,
-                cat_item_features=["type_id", "genres", "categories", "count_chapters", "age_limit",  "relation_list"],
+                cat_item_features=["type_id", "genres", "categories", "count_chapters", "age_limit", "relation_list"],
             )
+
 
             model.fit(dataset)
 

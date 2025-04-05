@@ -67,7 +67,6 @@ class Comments(Base):
     __tablename__ = 'comments'
 
     id = Column(BigInteger, primary_key=True)
-    text = Column(String(600))
     date = Column(DateTime)
     is_blocked = Column(Integer)
     is_deleted = Column(Integer)
@@ -252,6 +251,8 @@ class Titles(Base):
     avg_rating = Column(DECIMAL(10, 1))
     uploaded = Column(Integer)
     is_legal = Column(Integer)
+    uploaded = Column(Integer)
+    is_licensed = Column(Integer)
 
 
 class TitlesGenres(Base):
@@ -317,6 +318,7 @@ class UserTitleData(Base):
     user_id = Column(BigInteger, ForeignKey('users.id'))
     chapter_votes = Column(JSON, nullable=False)
     chapter_views = Column(JSON, nullable=False)
+
 
 
 class RawUsers(Base):
