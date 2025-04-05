@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
+
 warnings.filterwarnings('ignore')
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -59,14 +60,36 @@ async def shutdown_event():
         RecService._scheduler.shutdown()
     print("Services stopped")
 
+
 @app.get('/train')
 async def train():
     await RecService.train()
+
+
 @app.get("/titles/recommendations")
 async def rec_by_users(user_id: int, db: Session = Depends(get_db)):
     try:
         model, dataset = await ModelManager().get_model()
         recos = model.recommend(users=[user_id], dataset=dataset, k=5, filter_viewed=True)
+        item_ids = recos['item_id'].tolist()
+        stmt = select(Titles).where(Titles.id.in_(item_ids))
+
+        order = {id_: idx for idx, id_ in enumerate(item_ids)}
+        result = db.execute(stmt).scalars().all()
+
+        sorted_result = sorted(result, key=lambda x: order.get(x.id, len(item_ids)))
+
+        return sorted_result
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/titles/relavant")
+async def rec_by_title(title_id: int, db: Session = Depends(get_db)):
+    try:
+        model, dataset = await ModelManager().get_model()
+        recos = model.recommend_to_items(target_items=[title_id], dataset=dataset, k=10, filter_itself=True)
         item_ids = recos['item_id'].tolist()
         stmt = select(Titles).where(Titles.id.in_(item_ids))
 
@@ -109,8 +132,6 @@ async def hot_update_interact(user_id: int, title_id: int, int_type: Literal['ra
     # sorted_result = sorted(result, key=lambda x: order.get(x.id, len(item_ids)))
 
     # return sorted_result
-
-
 
 
 @app.get("/health")
