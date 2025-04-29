@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # PostgreSQL база данных
+  db:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: rec_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  # Redis для кэширования
+  redis:
+    image: redis:6
+    ports:
+      - "6379:6379"
+
+  # Zookeeper для Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  # Kafka для очереди сообщений
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  # Основной сервис рекомендаций
+  rec_service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - db
+      - redis
+      - kafka
+    ports:
+      - "50051:50051"
+    environment:
+      REC_DB_URL: "postgresql://user:password@db:5432/rec_db"
+      REC_GRPC_HOST: "0.0.0.0"
+      REC_GRPC_PORT: "50051"
+      REC_CACHE_URL: "redis://redis:6379/0"
+      REC_KAFKA_SERVERS: "kafka:9092"
+      REC_KAFKA_TOPIC: "user-interactions"
+
+  # Обработчик пакетных обновлений
+  batch_updater:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - db
+      - redis
+      - kafka
+      - rec_service
+    command: ["python", "-m", "recommendations.workers.batch_updater"]
+    environment:
+      REC_DB_URL: "postgresql://user:password@db:5432/rec_db"
+      REC_CACHE_URL: "redis://redis:6379/0"
+      REC_KAFKA_SERVERS: "kafka:9092"
+      REC_KAFKA_TOPIC: "user-interactions"
+      REC_KAFKA_GROUP: "batch-updater"
+
+volumes:
+  postgres_data: 

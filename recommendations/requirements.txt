@@ -1,0 +1,30 @@
+# Основные зависимости
+numpy>=1.20.0
+pandas>=1.3.0
+lightfm>=1.16
+rectools>=0.3.5
+scikit-learn>=1.0.0
+scipy>=1.7.0
+
+# Базы данных и кеширование
+sqlalchemy>=1.4.0
+alembic>=1.7.0
+asyncpg>=0.25.0
+redis>=4.3.0
+aioredis>=2.0.0
+
+# gRPC и протобуфы
+grpcio>=1.44.0
+grpcio-tools>=1.44.0
+protobuf>=3.19.0
+
+# Асинхронность и многопоточность
+asyncio>=3.4.3
+threadpoolctl>=3.0.0
+
+# Планирование задач
+apscheduler>=3.9.0
+pytz>=2022.1
+
+# Логирование и настройка
+python-dotenv>=0.20.0 

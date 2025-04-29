@@ -1,10 +1,11 @@
 import asyncio
 import logging
 from datetime import  datetime
+import time  # Добавляем импорт time для кэширования
 
 import numpy as np
 from rectools import Columns
-from sqlalchemy import func, select, distinct
+from sqlalchemy import func, select, distinct, text  # Добавляем импорт text
 from sqlalchemy.exc import SQLAlchemyError
 
 from models import RawUsers, Bookmarks, Rating, UserTitleData, \
@@ -139,285 +140,371 @@ class BlacklistManager:
 
 
 class DataPrepareService:
-    @staticmethod
-    async def boost_int_weights_by_paid(df: pd.DataFrame, boost_factor: float = 1.2) -> pd.DataFrame:
-        """
-        Boost interaction weights for titles with any paid chapters.
-        Applies careful boost to avoid over-weighting.
+    """Сервис для подготовки данных для рекомендательной системы"""
 
+    def __init__(self, session_maker, read_only=True):
+        """
+        Инициализация сервиса подготовки данных
+        
         Args:
-            df: Input DataFrame with interactions
-            boost_factor: Multiplicative factor for paid titles (default: 1.2 = +20%)
-
-        Returns:
-            Modified DataFrame with boosted weights
+            session_maker: Фабрика сессий базы данных
+            read_only: Флаг только для чтения (по умолчанию True)
         """
-        if Columns.Weight not in df.columns or Columns.Item not in df.columns:
+        self.session_maker = session_maker
+        self.read_only = read_only
+        self.logger = logging.getLogger(__name__)
+        self.cache = {}
+        self.cache_ttl = 3600  # кэш на 1 час
+        self.cache_timestamp = {}
+
+    async def get_users_features(self, max_age_days=None):
+        """Получение признаков пользователей"""
+        cache_key = f"users_features_{max_age_days}"
+        
+        # Проверяем кэш
+        if cache_key in self.cache:
+            if time.time() - self.cache_timestamp.get(cache_key, 0) < self.cache_ttl:
+                self.logger.info("Returning cached user features")
+                return self.cache[cache_key]
+        
+        self.logger.info("Fetching user features from database")
+        async with self.session_maker() as session:
+            if self.read_only:
+                # Устанавливаем сессию только для чтения
+                session.execute(text("SET TRANSACTION READ ONLY"))
+                
+            query = """
+                SELECT 
+                    u.id AS user_id,
+                    u.age,
+                    EXTRACT(DAY FROM NOW() - u.created_at) AS account_age_days,
+                    COUNT(DISTINCT w.title_id) AS watch_count,
+                    COUNT(DISTINCT l.title_id) AS like_count,
+                    ARRAY_AGG(DISTINCT g.name) AS favorite_genres
+                FROM users u
+                LEFT JOIN watches w ON u.id = w.user_id
+                LEFT JOIN likes l ON u.id = l.user_id
+                LEFT JOIN titles_genres tg ON tg.title_id = w.title_id OR tg.title_id = l.title_id
+                LEFT JOIN genres g ON tg.genre_id = g.id
+            """
+            
+            if max_age_days is not None:
+                query += f" WHERE EXTRACT(DAY FROM NOW() - u.created_at) <= {max_age_days}"
+            
+            query += """
+                GROUP BY u.id, u.age, u.created_at
+            """
+            
+            result = await session.execute(text(query))
+            rows = result.fetchall()
+            
+            # Преобразуем в DataFrame
+            df = pd.DataFrame(rows, columns=[
+                'user_id', 'age', 'account_age_days', 
+                'watch_count', 'like_count', 'favorite_genres'
+            ])
+            
+            # Сохраняем в кэш
+            self.cache[cache_key] = df
+            self.cache_timestamp[cache_key] = time.time()
+            
+            self.logger.info(f"Fetched {len(df)} user records")
             return df
 
-        black_list = await BlacklistManager.get_black_titles_ids()
-
-        with SessionLocal() as db:
-            paid_titles = db.query(
-                distinct(TitleChapter.title_id)
-            ).filter(
-                TitleChapter.is_paid == True,
-                TitleChapter.title_id.in_(df[Columns.Item].unique()),
-                ~TitleChapter.title_id.in_(black_list)
-            ).all()
-
-            paid_title_ids = {t[0] for t in paid_titles}
-
-        if paid_title_ids:
-            paid_mask = df[Columns.Item].isin(paid_title_ids)
-            df.loc[paid_mask, Columns.Weight] = df.loc[paid_mask, Columns.Weight] * boost_factor
-
-        return df
-
-    @staticmethod
-    async def _get_user_title_data(black_list: set):
-
-        with SessionLocal() as db:
-            cur_date = datetime.now()
-            # thirty_days_ago = cur_date - timedelta(days=DAYS)
-            user_title_data_pd = pd.read_sql_query(
-                db.query(UserTitleData)
-                .filter(
-                    # UserTitleData.last_read_date >= thirty_days_ago,
-                    ~UserTitleData.title_id.in_(black_list))
-                .statement, db.bind)
-            user_title_data_pd.rename({"last_read_date": Columns.Datetime}, inplace=True)
-            new_rows = []
-
-            for index, row in user_title_data_pd.iterrows():
-                chapter_votes = row['chapter_votes'] if 'chapter_votes' in row else []
-                chapter_views = row['chapter_views'] if 'chapter_views' in row else []
-
-                for _ in chapter_votes:
-                    new_rows.append({
-                        Columns.User: row[Columns.User],
-                        Columns.Item: row["title_id"],
-                        Columns.Weight: 6,
-                        Columns.Datetime: row['last_read_date']
-                    })
-
-                for _ in chapter_views:
-                    new_rows.append({
-                        Columns.User: row[Columns.User],
-                        Columns.Item: row["title_id"],
-                        Columns.Weight: 3,
-                        Columns.Datetime: row['last_read_date']
-                    })
-
-            final_df = pd.DataFrame(new_rows)
-            final_df = final_df[[Columns.User, Columns.Item, Columns.Datetime, Columns.Weight]]
-            return final_df
-
-    @staticmethod
-    async def _get_bookmarks(black_list: set):
-        with SessionLocal() as db:
-            bookmarks_pd = pd.read_sql_query(db.query(Bookmarks).filter(Bookmarks.is_default == 1,
-                                                                        ~Bookmarks.title_id.in_(black_list)).limit(
-                USERS_LIMIT).statement,
-                                             db.bind)
-            bookmarks_pd.rename({"title_id": Columns.Item, "bookmark_type_id": Columns.Weight}, axis='columns',
-                                inplace=True)
-            bookmarks_pd[Columns.Datetime] = pd.to_datetime("now")
-            bookmarks_pd[Columns.Weight] = bookmarks_pd[Columns.Weight].apply(map_bookmark_type_id)
-            bookmarks_pd.drop(columns=["id", "is_default"], inplace=True)
-            bookmarks_pd = bookmarks_pd[[Columns.User, Columns.Item, Columns.Weight, Columns.Datetime]]
-            return bookmarks_pd
-
-    @staticmethod
-    async def _get_comments(black_list: set):
-        with SessionLocal() as db:
-            try:
-                query = db.query(Comments).filter(
-                    Comments.title_id.isnot(None),
-                    ~Comments.title_id.in_(black_list),
-                    Comments.is_blocked == 0,
-                    Comments.is_deleted == 0
-                ).limit(USERS_LIMIT)
-
-                comments_pd = pd.read_sql_query(query.statement, db.bind)
-
-                if not comments_pd.empty:
-                    comments_pd = (
-                        comments_pd
-                        .assign(**{Columns.Weight: 1.1})
-                        .rename({
-                            'user_id': Columns.User,
-                            'title_id': Columns.Item,
-                            'date': Columns.Datetime
-                        }, axis='columns')
-                    )
-                else:
-                    comments_pd = pd.DataFrame(columns=[
-                        Columns.User,
-                        Columns.Item,
-                        Columns.Weight,
-                        Columns.Datetime
-                    ])
-                comments_pd = comments_pd[[Columns.User, Columns.Item, Columns.Weight, Columns.Datetime]]
-
-                return comments_pd
-
-            except SQLAlchemyError as e:
-                logger.error(f"Database error: {str(e)}")
-                return pd.DataFrame()
-
-    @staticmethod
-    async def _get_user_buys(black_list: set):
-        with (SessionLocal() as db):
-            query = db.query(UserBuys.user_id, UserBuys.date, TitleChapter.title_id
-                             ).join(TitleChapter, UserBuys.chapter_id == TitleChapter.id).filter(
-                ~TitleChapter.title_id.in_(black_list)
-            ).limit(1000)
-
-            user_buys_pd = pd.read_sql_query(query.statement, db.bind)
-            user_buys_pd.rename({"date": Columns.Datetime, "title_id": Columns.Item, "user_id": Columns.User},
-                                axis='columns',
-                                inplace=True)
-            user_buys_pd[Columns.Weight] = 5
-            return user_buys_pd
-
-    @staticmethod
-    async def _get_ratings(black_list: set):
-        with SessionLocal() as db:
-            cur_date = datetime.now()
-            # thirty_days_ago = cur_date - timedelta(days=DAYS)
-            # .filter(Rating.date.between(thirty_days_ago, cur_date))
-            query = db.query(Rating).filter(
-                # Rating.date >= thirty_days_ago,
-                ~Rating.title_id.in_(black_list)).limit(1000).statement
-            ratings_pd = pd.read_sql_query(query, db.bind)
-            ratings_pd.rename({"date": Columns.Datetime, "title_id": Columns.Item, "rating": Columns.Weight},
-                              axis='columns',
-                              inplace=True)
-            ratings_pd.drop(columns=["id"], inplace=True)
-            ratings_pd[Columns.Weight] = ratings_pd[Columns.Weight].apply(map_ratings)
-            ratings_pd = ratings_pd[[Columns.User, Columns.Item, Columns.Weight, Columns.Datetime]]
-            return ratings_pd
-
-    @staticmethod
-    async def _apply_temporal_decay(df, omega: float = 0.01, max_decay: float = 0.7):
-        df.head(10)
-        """
-            Apply improved temporal decay to interaction weights using formula:
-             W = B * (max_decay + (1-max_decay) * e^(-ω * dif^0.5))
-    
-            Args:
-                df: Input DataFrame
-                omega: Decay coefficient (default 0.01) - более мягкий параметр
-                max_decay: Минимальная доля веса (0.7 = сохраняем минимум 70% исходного веса)
-        """
-        if Columns.Weight not in df.columns or Columns.Item not in df.columns:
+    async def get_titles_features(self, min_rating=None):
+        """Получение признаков фильмов"""
+        cache_key = f"titles_features_{min_rating}"
+        
+        # Проверяем кэш
+        if cache_key in self.cache:
+            if time.time() - self.cache_timestamp.get(cache_key, 0) < self.cache_ttl:
+                self.logger.info("Returning cached title features")
+                return self.cache[cache_key]
+        
+        self.logger.info("Fetching title features from database")
+        async with self.session_maker() as session:
+            if self.read_only:
+                # Устанавливаем сессию только для чтения
+                session.execute(text("SET TRANSACTION READ ONLY"))
+                
+            query = """
+                SELECT 
+                    t.id AS title_id,
+                    t.title,
+                    t.release_year,
+                    t.rating,
+                    t.duration_minutes,
+                    COUNT(DISTINCT w.user_id) AS watch_count,
+                    COUNT(DISTINCT l.user_id) AS like_count,
+                    ARRAY_AGG(DISTINCT g.name) AS genres
+                FROM titles t
+                LEFT JOIN watches w ON t.id = w.title_id
+                LEFT JOIN likes l ON t.id = l.title_id
+                LEFT JOIN titles_genres tg ON t.id = tg.title_id
+                LEFT JOIN genres g ON tg.genre_id = g.id
+            """
+            
+            if min_rating is not None:
+                query += f" WHERE t.rating >= {min_rating}"
+            
+            query += """
+                GROUP BY t.id, t.title, t.release_year, t.rating, t.duration_minutes
+            """
+            
+            result = await session.execute(text(query))
+            rows = result.fetchall()
+            
+            # Преобразуем в DataFrame
+            df = pd.DataFrame(rows, columns=[
+                'title_id', 'title', 'release_year', 'rating', 
+                'duration_minutes', 'watch_count', 'like_count', 'genres'
+            ])
+            
+            # Сохраняем в кэш
+            self.cache[cache_key] = df
+            self.cache_timestamp[cache_key] = time.time()
+            
+            self.logger.info(f"Fetched {len(df)} title records")
             return df
 
-        black_list = await BlacklistManager.get_black_titles_ids()
+    async def get_interactions(self, min_days=None, interaction_types=None):
+        """Получение взаимодействий пользователей с фильмами"""
+        if interaction_types is None:
+            interaction_types = ["watch", "like"]
+            
+        cache_key = f"interactions_{min_days}_{'-'.join(interaction_types)}"
+        
+        # Проверяем кэш
+        if cache_key in self.cache:
+            if time.time() - self.cache_timestamp.get(cache_key, 0) < self.cache_ttl:
+                self.logger.info("Returning cached interactions")
+                return self.cache[cache_key]
+        
+        self.logger.info(f"Fetching interactions from database: {interaction_types}")
+        
+        # Подготавливаем задачи для получения данных параллельно
+        tasks = []
+        
+        # Получаем просмотры
+        if "watch" in interaction_types:
+            tasks.append(self._get_watches(min_days))
+            
+        # Получаем лайки
+        if "like" in interaction_types:
+            tasks.append(self._get_likes(min_days))
+            
+        # Ожидаем выполнения всех задач
+        results = await asyncio.gather(*tasks)
+        
+        # Объединяем результаты
+        interactions = pd.concat(results, ignore_index=True)
+        
+        # Сохраняем в кэш
+        self.cache[cache_key] = interactions
+        self.cache_timestamp[cache_key] = time.time()
+        
+        self.logger.info(f"Fetched {len(interactions)} interaction records")
+        return interactions
 
-        with SessionLocal() as db:
-            result = db.query(Titles.id, Titles.last_chapter_uploaded).where(
-                Titles.id.in_(df[Columns.Item].unique()),
-                ~Titles.id.in_(black_list),
-                Titles.last_chapter_uploaded != None
-            )
-        title_dates = {id_: date for id_, date in result.all()}
-        current_date = pd.to_datetime('today')
-        mask = (df[Columns.Weight] > 1) & (df[Columns.Item].isin(title_dates))
+    async def _get_watches(self, min_days=None):
+        """Получение просмотров"""
+        async with self.session_maker() as session:
+            if self.read_only:
+                # Устанавливаем сессию только для чтения
+                session.execute(text("SET TRANSACTION READ ONLY"))
+                
+            query = """
+                SELECT 
+                    w.user_id,
+                    w.title_id,
+                    1.0 AS weight,
+                    'watch' AS interaction_type,
+                    w.watched_at
+                FROM watches w
+            """
+            
+            if min_days is not None:
+                query += f" WHERE EXTRACT(DAY FROM NOW() - w.watched_at) <= {min_days}"
+            
+            result = await session.execute(text(query))
+            rows = result.fetchall()
+            
+            return pd.DataFrame(rows, columns=[
+                'user_id', 'title_id', 'weight', 'interaction_type', 'timestamp'
+            ])
 
-        last_upload_dates = df[Columns.Item].map(title_dates)
-        dif = (current_date - pd.to_datetime(last_upload_dates)).dt.days
-        decay_factor = max_decay + (1 - max_decay) * np.exp(-omega * np.sqrt(dif))
-        df.loc[mask, Columns.Weight] = df.loc[mask, Columns.Weight] * decay_factor[mask]
-        df.head(10)
+    async def _get_likes(self, min_days=None):
+        """Получение лайков"""
+        async with self.session_maker() as session:
+            if self.read_only:
+                # Устанавливаем сессию только для чтения
+                session.execute(text("SET TRANSACTION READ ONLY"))
+                
+            query = """
+                SELECT 
+                    l.user_id,
+                    l.title_id,
+                    2.0 AS weight,
+                    'like' AS interaction_type,
+                    l.liked_at
+                FROM likes l
+            """
+            
+            if min_days is not None:
+                query += f" WHERE EXTRACT(DAY FROM NOW() - l.liked_at) <= {min_days}"
+            
+            result = await session.execute(text(query))
+            rows = result.fetchall()
+            
+            return pd.DataFrame(rows, columns=[
+                'user_id', 'title_id', 'weight', 'interaction_type', 'timestamp'
+            ])
 
-        return df
-
-    @staticmethod
-    async def get_interactions():
-        black_list = await BlacklistManager.get_black_titles_ids()
-        bookmarks, ratings, user_title_data, comments, user_buys = await asyncio.gather(
-            DataPrepareService._get_bookmarks(black_list),
-            DataPrepareService._get_ratings(black_list),
-            DataPrepareService._get_user_title_data(black_list),
-            DataPrepareService._get_comments(black_list),
-            DataPrepareService._get_user_buys(black_list),
-
+    async def prepare_data_for_model(self, min_interaction_days=90, min_title_rating=None):
+        """Подготовка данных для обучения модели"""
+        self.logger.info("Preparing data for model training")
+        
+        # Параллельно получаем все необходимые данные
+        users_features, titles_features, interactions = await asyncio.gather(
+            self.get_users_features(),
+            self.get_titles_features(min_rating=min_title_rating),
+            self.get_interactions(min_days=min_interaction_days)
         )
+        # Оставляем только взаимодействия с фильмами, которые есть в наборе фильмов
+        valid_titles = set(titles_features['title_id'])
+        interactions = interactions[interactions['title_id'].isin(valid_titles)]
+        
+        # Оставляем только взаимодействия пользователей, которые есть в наборе пользователей
+        valid_users = set(users_features['user_id'])
+        interactions = interactions[interactions['user_id'].isin(valid_users)]
+        
+        # Создаем отображения ID пользователей и фильмов в индексы для модели
+        user_id_to_idx = {user_id: idx for idx, user_id in enumerate(users_features['user_id'].unique())}
+        title_id_to_idx = {title_id: idx for idx, title_id in enumerate(titles_features['title_id'].unique())}
+        
+        # Преобразуем ID в индексы
+        interactions['user_idx'] = interactions['user_id'].map(user_id_to_idx)
+        interactions['title_idx'] = interactions['title_id'].map(title_id_to_idx)
+        
+        # Подготавливаем данные для обучения модели
+        train_data = (
+            interactions['user_idx'].values,
+            interactions['title_idx'].values,
+            interactions['weight'].values
+        )
+        
+        # Создаем обратные отображения для использования в предсказаниях
+        idx_to_user_id = {idx: user_id for user_id, idx in user_id_to_idx.items()}
+        idx_to_title_id = {idx: title_id for title_id, idx in title_id_to_idx.items()}
+        
+        return {
+            'train_data': train_data,
+            'users_features': users_features,
+            'titles_features': titles_features,
+            'interactions': interactions,
+            'user_mappings': {
+                'user_id_to_idx': user_id_to_idx,
+                'idx_to_user_id': idx_to_user_id
+            },
+            'title_mappings': {
+                'title_id_to_idx': title_id_to_idx,
+                'idx_to_title_id': idx_to_title_id
+            }
+        }
 
-        combined_df = pd.concat([bookmarks, ratings, user_title_data, comments, user_buys], ignore_index=True)
-        print(combined_df.head())
-        await DataPrepareService._apply_temporal_decay(combined_df)
-        await DataPrepareService.boost_int_weights_by_paid(combined_df)
-        print(combined_df.head())
-        combined_df.to_pickle("data/intereaction.pickle")
+    async def prepare_train_val_data(self, val_ratio=0.2, min_interaction_days=90, min_title_rating=None):
+        """Подготовка данных для обучения и валидации модели"""
+        all_data = await self.prepare_data_for_model(
+            min_interaction_days=min_interaction_days, 
+            min_title_rating=min_title_rating
+        )
+        
+        interactions = all_data['interactions']
+        
+        # Сортируем по времени, чтобы разделение было хронологическим
+        interactions = interactions.sort_values('timestamp')
+        
+        # Определяем точку разделения (последние val_ratio % данных - для валидации)
+        split_idx = int(len(interactions) * (1 - val_ratio))
+        
+        # Разделяем данные
+        train_interactions = interactions.iloc[:split_idx]
+        val_interactions = interactions.iloc[split_idx:]
+        
+        # Подготавливаем данные для обучения
+        train_data = (
+            train_interactions['user_idx'].values,
+            train_interactions['title_idx'].values,
+            train_interactions['weight'].values
+        )
+        
+        # Подготавливаем данные для валидации
+        val_data = (
+            val_interactions['user_idx'].values,
+            val_interactions['title_idx'].values,
+            val_interactions['weight'].values
+        )
+        
+        # Обновляем словарь с данными
+        all_data['train_data'] = train_data
+        all_data['val_data'] = val_data
+        
+        return all_data
 
-        return combined_df
+    async def get_blacklisted_titles(self):
+        """Получение списка заблокированных фильмов"""
+        async with self.session_maker() as session:
+            if self.read_only:
+                # Устанавливаем сессию только для чтения
+                session.execute(text("SET TRANSACTION READ ONLY"))
+                
+            query = """
+                SELECT id FROM titles WHERE is_blacklisted = TRUE
+            """
+            result = await session.execute(text(query))
+            rows = result.fetchall()
+            return [row[0] for row in rows]
 
-    @staticmethod
-    async def get_users_features():
-        with SessionLocal() as db:
-            users_pd = pd.read_sql_query(
-                db.query(RawUsers).filter_by(is_banned=0).limit(3000).statement,
-                db.bind
+    async def get_user_recent_interactions(self, user_id, limit=10):
+        """Получение последних взаимодействий пользователя"""
+        # Получаем последние просмотры
+        async with self.session_maker() as session:
+            if self.read_only:
+                # Устанавливаем сессию только для чтения
+                session.execute(text("SET TRANSACTION READ ONLY"))
+                
+            # Объединяем просмотры и лайки в одном запросе
+            query = """
+                (SELECT 
+                    title_id, 
+                    'watch' AS interaction_type, 
+                    watched_at AS timestamp
+                FROM watches 
+                WHERE user_id = :user_id)
+                
+                UNION ALL
+                
+                (SELECT 
+                    title_id, 
+                    'like' AS interaction_type, 
+                    liked_at AS timestamp
+                FROM likes 
+                WHERE user_id = :user_id)
+                
+                ORDER BY timestamp DESC
+                LIMIT :limit
+            """
+            
+            result = await session.execute(
+                text(query), 
+                {"user_id": user_id, "limit": limit}
             )
-            users_pd.fillna('Unknown', inplace=True)
-            users_pd['birthday'] = pd.to_datetime(users_pd['birthday'], errors='coerce')
-            users_pd["age_group"] = users_pd["birthday"].apply(calculate_age_group)
+            
+            rows = result.fetchall()
+            
+            return pd.DataFrame(rows, columns=['title_id', 'interaction_type', 'timestamp'])
 
-            user_features_frames = []
-            for feature in ["sex", "age_group", "preference"]:
-                feature_frame = users_pd.reindex(columns=["id", feature])
-                feature_frame.columns = ["id", "value"]
-                feature_frame["feature"] = feature
-                user_features_frames.append(feature_frame)
-
-            user_features = pd.concat(user_features_frames, ignore_index=True)
-            user_features.to_pickle("data/user_features.pickle")
-            return user_features
-
-    @staticmethod
-    async def get_titles_features():
-        titles_pd, titles_categories_pd, titles_genres_pd, relations_pd = fetch_data_in_parallel()
-
-        # Обработка relations
-        if not relations_pd.empty:
-            relations_agg = (
-                relations_pd
-                .sort_values('id')
-                .groupby('title_id')['relation_list_id']
-                .first()
-                .reset_index(name='relation_list')
-            )
-        else:
-            relations_agg = pd.DataFrame(columns=['title_id', 'relation_list'])
-
-        titles_genres_agg = titles_genres_pd.groupby('title_id')['genre_id'].apply(list).reset_index()
-        titles_categories_agg = titles_categories_pd.groupby('title_id')['category_id'].apply(list).reset_index()
-
-        titles_features = pd.merge(titles_pd, titles_categories_agg, left_on='id', right_on='title_id', how='left')
-        titles_features = pd.merge(titles_features, titles_genres_agg, left_on='id', right_on='title_id', how='left')
-        titles_features = pd.merge(titles_features, relations_agg, left_on='id', right_on='title_id', how='left')
-
-        titles_features['category_id'] = titles_features['category_id'].fillna('0')
-        titles_features['genre_id'] = titles_features['genre_id'].fillna('0')
-        titles_features.rename(columns={'category_id': 'categories', 'genre_id': 'genres'}, inplace=True)
-
-        titles_features['count_chapters'] = titles_features['count_chapters'].fillna(0).apply(categorize_chapters)
-
-        if 'relation_list' not in titles_features.columns:
-            titles_features['relation_list'] = 0
-        titles_features['relation_list'] = titles_features['relation_list'].fillna(0).astype('Int64')
-
-        features = ['status_id', 'age_limit', 'count_chapters', 'type_id', 'categories', 'genres', 'relation_list']
-        titles_features_long = titles_features.melt(
-            id_vars=['id'],
-            value_vars=features,
-            var_name='feature',
-            value_name='value'
-        ).explode('value')
-        # titles_features_long[Columns.Weight] = 2
-        titles_features_long.to_pickle("data/title_features.pickle")
-
-        return titles_features_long
+    # Добавляем метод для проверки доступа
+    async def check_read_only(self):
+        """Проверяет, работает ли сервис в режиме только для чтения"""
+        return self.read_only

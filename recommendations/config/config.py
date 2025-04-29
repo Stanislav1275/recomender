@@ -4,11 +4,12 @@ config = {
     "model": {
         "cls": "lightfm.lightfm.LightFM",
         # "cls": "LightFM",
-        "no_components": 16,
-        "learning_rate": 0.03,
-        "random_state": 40,
-        "loss": "bpr",
-        "k":40
+        "no_components": 32,
+        "learning_rate": 0.05,
+        "random_state": 42,
+        "loss": "warp",
+        "k": 40
     },
-    "epochs": 10,
+    "num_threads": 4,
+    "epochs": 15,
 }

@@ -1,0 +1,110 @@
+syntax = "proto3";
+
+package recommendations;
+
+// Сервис рекомендаций
+service RecommendationService {
+  // Получение персональных рекомендаций для пользователя
+  rpc GetRecommendations (UserRequest) returns (RecommendationsResponse) {}
+  
+  // Получение похожих элементов для заданного элемента
+  rpc GetSimilarItems (ItemRequest) returns (RecommendationsResponse) {}
+  
+  // Запуск обучения модели
+  rpc TrainModel (TrainModelRequest) returns (TrainModelResponse) {}
+  
+  // Получение информации о модели
+  rpc GetModelInfo (ModelInfoRequest) returns (ModelInfoResponse) {}
+  
+  // Получение списка моделей
+  rpc ListModels (ListModelsRequest) returns (ListModelsResponse) {}
+  
+  // Установка активной модели
+  rpc SetActiveModel (SetActiveModelRequest) returns (SetActiveModelResponse) {}
+  
+  // Получение последних взаимодействий пользователя
+  rpc GetUserRecentInteractions (UserRequest) returns (UserInteractionsResponse) {}
+}
+
+// Запрос для получения рекомендаций для пользователя
+message UserRequest {
+  int32 user_id = 1;
+  int32 limit = 2;  // Максимальное количество рекомендаций
+  bool filter_viewed = 3;  // Фильтровать уже просмотренные элементы
+}
+
+// Запрос для получения похожих элементов
+message ItemRequest {
+  int32 item_id = 1;
+  int32 limit = 2;  // Максимальное количество похожих элементов
+}
+
+// Запрос для получения информации о модели
+message ModelInfoRequest {
+  string model_id = 1;
+}
+
+// Запрос для получения списка моделей
+message ListModelsRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+
+// Запрос для установки активной модели
+message SetActiveModelRequest {
+  string model_id = 1;
+}
+
+// Запрос для обучения модели
+message TrainModelRequest {
+  map<string, string> parameters = 1;  // Параметры модели
+}
+
+// Ответ с рекомендациями
+message RecommendationsResponse {
+  repeated int32 item_ids = 1;  // Список ID рекомендованных элементов
+  repeated float scores = 2;    // Оценки релевантности для каждого элемента
+}
+
+// Ответ с информацией о модели
+message ModelInfoResponse {
+  string model_id = 1;
+  string name = 2;
+  map<string, string> parameters = 3;
+  string created_at = 4;
+  bool is_active = 5;
+  map<string, string> metrics = 6;
+  string file_path = 7;
+}
+
+// Ответ со списком моделей
+message ListModelsResponse {
+  repeated ModelInfoResponse models = 1;
+  int32 total_count = 2;
+}
+
+// Ответ на запрос об установке активной модели
+message SetActiveModelResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Ответ на запрос об обучении модели
+message TrainModelResponse {
+  string model_id = 1;
+  bool success = 2;
+  string message = 3;
+  int32 version = 4;
+}
+
+// Структура для взаимодействия пользователя с элементом
+message UserInteraction {
+  int32 item_id = 1;
+  string interaction_type = 2;  // Тип взаимодействия (watch, like и т.д.)
+  string timestamp = 3;         // Время взаимодействия
+}
+
+// Ответ с последними взаимодействиями пользователя
+message UserInteractionsResponse {
+  repeated UserInteraction interactions = 1;
+} 
