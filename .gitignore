@@ -19,3 +19,5 @@ data/dataset.pkl
 data/model.csv
 
 .qodo
+.re_venv/*
+.re_venv/**/*

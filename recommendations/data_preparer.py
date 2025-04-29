@@ -1,14 +1,14 @@
 import asyncio
 import logging
-from datetime import timedelta, datetime
+from datetime import  datetime
 
 import numpy as np
 from rectools import Columns
-from sqlalchemy import func
+from sqlalchemy import func, select, distinct
 from sqlalchemy.exc import SQLAlchemyError
 
 from models import RawUsers, Bookmarks, Rating, UserTitleData, \
-    TitlesTitleRelation, Comments
+    TitlesTitleRelation, Comments, UserBuys, TitleChapter, TitlesSites
 import warnings
 import os
 import threadpoolctl
@@ -19,8 +19,8 @@ from utils.cat_chapters import categorize_chapters
 warnings.filterwarnings('ignore')
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 threadpoolctl.threadpool_limits(1, "blas")
-USERS_LIMIT = 100000
-DAYS = 30
+USERS_LIMIT = 1000000
+DAYS = 1000000
 test_users_ids = [34]
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -48,17 +48,17 @@ def fetch_data_in_parallel():
             # Define tasks for parallel execution
             titles_future = executor.submit(
                 pd.read_sql_query,
-                db.query(Titles).filter_by(is_erotic=0, is_yaoi=0, is_legal=1).order_by(None).statement,
+                db.query(Titles).filter_by(is_erotic=0, is_yaoi=0, uploaded=1).order_by(None).statement,
                 db.bind
             )
             categories_future = executor.submit(
                 pd.read_sql_query,
-                db.query(TitlesCategories).limit(USERS_LIMIT).statement,
+                db.query(TitlesCategories).statement,
                 db.bind
             )
             genres_future = executor.submit(
                 pd.read_sql_query,
-                db.query(TitlesGenres).limit(USERS_LIMIT).statement,
+                db.query(TitlesGenres).statement,
                 db.bind
             )
             # similar_future = executor.submit(
@@ -68,7 +68,7 @@ def fetch_data_in_parallel():
             # )
             relations_future = executor.submit(
                 pd.read_sql_query,
-                db.query(TitlesTitleRelation).limit(USERS_LIMIT).statement,
+                db.query(TitlesTitleRelation).statement,
                 db.bind
             )
 
@@ -104,18 +104,27 @@ def map_bookmark_type_id(bookmark_type_id):
 
 
 class BlacklistManager:
-    """Синхронный менеджер черного списка"""
     _black_titles_ids = None
+
+    @classmethod
+    def has_block_title(cls, model: Titles):
+        return (model.count_chapters == 0) or model.is_yaoi == 1 or model.uploaded == 0
 
     @classmethod
     async def _fetch_black_titles_ids(cls):
         with SessionLocal() as db:
-            query = db.query(Titles.id).filter(
+            black_query = db.query(Titles.id).filter(
                 (Titles.count_chapters == 0) |
-                (Titles.is_yaoi == 1) | (Titles.is_erotic == 1)
-                | (Titles.uploaded == 0) | (Titles.is_licensed == 1)
+                (Titles.is_yaoi == 1) |
+                (Titles.uploaded == 0)
             )
-            ids = {row.id for row in query.all()}
+
+            site_filter_query = db.query(TitlesSites.title_id).filter(
+                TitlesSites.site_id != 1
+            )
+
+            result = black_query.union(site_filter_query)
+            ids = {row.id for row in result.all()}
             return ids
 
     @classmethod
@@ -131,15 +140,50 @@ class BlacklistManager:
 
 class DataPrepareService:
     @staticmethod
+    async def boost_int_weights_by_paid(df: pd.DataFrame, boost_factor: float = 1.2) -> pd.DataFrame:
+        """
+        Boost interaction weights for titles with any paid chapters.
+        Applies careful boost to avoid over-weighting.
+
+        Args:
+            df: Input DataFrame with interactions
+            boost_factor: Multiplicative factor for paid titles (default: 1.2 = +20%)
+
+        Returns:
+            Modified DataFrame with boosted weights
+        """
+        if Columns.Weight not in df.columns or Columns.Item not in df.columns:
+            return df
+
+        black_list = await BlacklistManager.get_black_titles_ids()
+
+        with SessionLocal() as db:
+            paid_titles = db.query(
+                distinct(TitleChapter.title_id)
+            ).filter(
+                TitleChapter.is_paid == True,
+                TitleChapter.title_id.in_(df[Columns.Item].unique()),
+                ~TitleChapter.title_id.in_(black_list)
+            ).all()
+
+            paid_title_ids = {t[0] for t in paid_titles}
+
+        if paid_title_ids:
+            paid_mask = df[Columns.Item].isin(paid_title_ids)
+            df.loc[paid_mask, Columns.Weight] = df.loc[paid_mask, Columns.Weight] * boost_factor
+
+        return df
+
+    @staticmethod
     async def _get_user_title_data(black_list: set):
 
         with SessionLocal() as db:
             cur_date = datetime.now()
-            thirty_days_ago = cur_date - timedelta(days=DAYS)
+            # thirty_days_ago = cur_date - timedelta(days=DAYS)
             user_title_data_pd = pd.read_sql_query(
                 db.query(UserTitleData)
                 .filter(
-                    UserTitleData.last_read_date >= thirty_days_ago,
+                    # UserTitleData.last_read_date >= thirty_days_ago,
                     ~UserTitleData.title_id.in_(black_list))
                 .statement, db.bind)
             user_title_data_pd.rename({"last_read_date": Columns.Datetime}, inplace=True)
@@ -188,23 +232,19 @@ class DataPrepareService:
     async def _get_comments(black_list: set):
         with SessionLocal() as db:
             try:
-                # 1. Фильтрация данных
                 query = db.query(Comments).filter(
                     Comments.title_id.isnot(None),
-                    Comments.date >= datetime.now() - timedelta(days=30),
                     ~Comments.title_id.in_(black_list),
                     Comments.is_blocked == 0,
                     Comments.is_deleted == 0
                 ).limit(USERS_LIMIT)
 
-                # 2. Загрузка в DataFrame
                 comments_pd = pd.read_sql_query(query.statement, db.bind)
 
-                # 3. Обработка данных
                 if not comments_pd.empty:
                     comments_pd = (
                         comments_pd
-                        .assign(Weight=1.1, inplace=True)
+                        .assign(**{Columns.Weight: 1.1})
                         .rename({
                             'user_id': Columns.User,
                             'title_id': Columns.Item,
@@ -227,13 +267,29 @@ class DataPrepareService:
                 return pd.DataFrame()
 
     @staticmethod
+    async def _get_user_buys(black_list: set):
+        with (SessionLocal() as db):
+            query = db.query(UserBuys.user_id, UserBuys.date, TitleChapter.title_id
+                             ).join(TitleChapter, UserBuys.chapter_id == TitleChapter.id).filter(
+                ~TitleChapter.title_id.in_(black_list)
+            ).limit(1000)
+
+            user_buys_pd = pd.read_sql_query(query.statement, db.bind)
+            user_buys_pd.rename({"date": Columns.Datetime, "title_id": Columns.Item, "user_id": Columns.User},
+                                axis='columns',
+                                inplace=True)
+            user_buys_pd[Columns.Weight] = 5
+            return user_buys_pd
+
+    @staticmethod
     async def _get_ratings(black_list: set):
         with SessionLocal() as db:
             cur_date = datetime.now()
-            thirty_days_ago = cur_date - timedelta(days=DAYS)
+            # thirty_days_ago = cur_date - timedelta(days=DAYS)
             # .filter(Rating.date.between(thirty_days_ago, cur_date))
-            query = db.query(Rating).filter(Rating.date >= thirty_days_ago, ~Rating.title_id.in_(black_list)).limit(
-                DAYS).statement
+            query = db.query(Rating).filter(
+                # Rating.date >= thirty_days_ago,
+                ~Rating.title_id.in_(black_list)).limit(1000).statement
             ratings_pd = pd.read_sql_query(query, db.bind)
             ratings_pd.rename({"date": Columns.Datetime, "title_id": Columns.Item, "rating": Columns.Weight},
                               axis='columns',
@@ -244,19 +300,59 @@ class DataPrepareService:
             return ratings_pd
 
     @staticmethod
+    async def _apply_temporal_decay(df, omega: float = 0.01, max_decay: float = 0.7):
+        df.head(10)
+        """
+            Apply improved temporal decay to interaction weights using formula:
+             W = B * (max_decay + (1-max_decay) * e^(-ω * dif^0.5))
+    
+            Args:
+                df: Input DataFrame
+                omega: Decay coefficient (default 0.01) - более мягкий параметр
+                max_decay: Минимальная доля веса (0.7 = сохраняем минимум 70% исходного веса)
+        """
+        if Columns.Weight not in df.columns or Columns.Item not in df.columns:
+            return df
+
+        black_list = await BlacklistManager.get_black_titles_ids()
+
+        with SessionLocal() as db:
+            result = db.query(Titles.id, Titles.last_chapter_uploaded).where(
+                Titles.id.in_(df[Columns.Item].unique()),
+                ~Titles.id.in_(black_list),
+                Titles.last_chapter_uploaded != None
+            )
+        title_dates = {id_: date for id_, date in result.all()}
+        current_date = pd.to_datetime('today')
+        mask = (df[Columns.Weight] > 1) & (df[Columns.Item].isin(title_dates))
+
+        last_upload_dates = df[Columns.Item].map(title_dates)
+        dif = (current_date - pd.to_datetime(last_upload_dates)).dt.days
+        decay_factor = max_decay + (1 - max_decay) * np.exp(-omega * np.sqrt(dif))
+        df.loc[mask, Columns.Weight] = df.loc[mask, Columns.Weight] * decay_factor[mask]
+        df.head(10)
+
+        return df
+
+    @staticmethod
     async def get_interactions():
         black_list = await BlacklistManager.get_black_titles_ids()
-        bookmarks, ratings, user_title_data = await asyncio.gather(
+        bookmarks, ratings, user_title_data, comments, user_buys = await asyncio.gather(
             DataPrepareService._get_bookmarks(black_list),
             DataPrepareService._get_ratings(black_list),
             DataPrepareService._get_user_title_data(black_list),
-            # DataPrepareService._get_comments(black_list),
+            DataPrepareService._get_comments(black_list),
+            DataPrepareService._get_user_buys(black_list),
 
         )
-        # print(comments.head(10))
-        print(ratings.head(10))
-        print(bookmarks.head(10))
-        combined_df = pd.concat([bookmarks, ratings, user_title_data], ignore_index=True)
+
+        combined_df = pd.concat([bookmarks, ratings, user_title_data, comments, user_buys], ignore_index=True)
+        print(combined_df.head())
+        await DataPrepareService._apply_temporal_decay(combined_df)
+        await DataPrepareService.boost_int_weights_by_paid(combined_df)
+        print(combined_df.head())
+        combined_df.to_pickle("data/intereaction.pickle")
+
         return combined_df
 
     @staticmethod
@@ -271,7 +367,6 @@ class DataPrepareService:
             users_pd["age_group"] = users_pd["birthday"].apply(calculate_age_group)
 
             user_features_frames = []
-            user_features_frames = []
             for feature in ["sex", "age_group", "preference"]:
                 feature_frame = users_pd.reindex(columns=["id", feature])
                 feature_frame.columns = ["id", "value"]
@@ -279,6 +374,7 @@ class DataPrepareService:
                 user_features_frames.append(feature_frame)
 
             user_features = pd.concat(user_features_frames, ignore_index=True)
+            user_features.to_pickle("data/user_features.pickle")
             return user_features
 
     @staticmethod
@@ -297,29 +393,23 @@ class DataPrepareService:
         else:
             relations_agg = pd.DataFrame(columns=['title_id', 'relation_list'])
 
-        # Обработка категорий и жанров
         titles_genres_agg = titles_genres_pd.groupby('title_id')['genre_id'].apply(list).reset_index()
         titles_categories_agg = titles_categories_pd.groupby('title_id')['category_id'].apply(list).reset_index()
 
-        # Слияние данных
         titles_features = pd.merge(titles_pd, titles_categories_agg, left_on='id', right_on='title_id', how='left')
         titles_features = pd.merge(titles_features, titles_genres_agg, left_on='id', right_on='title_id', how='left')
         titles_features = pd.merge(titles_features, relations_agg, left_on='id', right_on='title_id', how='left')
 
-        # Заполнение пропусков
         titles_features['category_id'] = titles_features['category_id'].fillna('0')
         titles_features['genre_id'] = titles_features['genre_id'].fillna('0')
         titles_features.rename(columns={'category_id': 'categories', 'genre_id': 'genres'}, inplace=True)
 
-        # Обработка count_chapters
         titles_features['count_chapters'] = titles_features['count_chapters'].fillna(0).apply(categorize_chapters)
 
-        # Проверка и заполнение relation_list
         if 'relation_list' not in titles_features.columns:
             titles_features['relation_list'] = 0
         titles_features['relation_list'] = titles_features['relation_list'].fillna(0).astype('Int64')
 
-        # Формирование финального DataFrame
         features = ['status_id', 'age_limit', 'count_chapters', 'type_id', 'categories', 'genres', 'relation_list']
         titles_features_long = titles_features.melt(
             id_vars=['id'],
@@ -327,5 +417,7 @@ class DataPrepareService:
             var_name='feature',
             value_name='value'
         ).explode('value')
+        # titles_features_long[Columns.Weight] = 2
+        titles_features_long.to_pickle("data/title_features.pickle")
 
         return titles_features_long
