@@ -1,4 +1,18 @@
-FROM ubuntu:latest
-LABEL authors="arist"
+FROM python:3.12
 
-ENTRYPOINT ["top", "-b"]
+WORKDIR /app
+
+# Установка зависимостей
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install rectools[lightfm]
+RUN pip install pymysql
+
+# Копирование только необходимых файлов
+COPY core/ ./core/
+COPY models/ ./models/
+COPY recommendations/ ./recommendations/
+COPY grpc_server.py .
+
+# Запуск сервера
+CMD ["python", "grpc_server.py"]
