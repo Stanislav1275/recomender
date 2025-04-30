@@ -1,5 +1,7 @@
 rectools[lightfm]~=0.13.0
 pymysql~=1.0.3
+# LightFM из версии PyPI не совместим с Python 3.12, поэтому используем версию из GitHub
+git+https://github.com/lyst/lightfm.git@master#egg=lightfm
 pydantic-settings~=2.7.1
 fastapi~=0.115.7
 SQLAlchemy~=2.0.37
