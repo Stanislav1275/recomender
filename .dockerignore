@@ -1,0 +1,58 @@
+# Виртуальные окружения
+.venv/
+env/
+venv/
+.re_venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Локальные данные
+data/cur/*.pkl
+data/prev/*.pkl
+data/raw/
+data/processed/
+*.csv
+*.json
+*.pickle
+
+# Логи
+logs/
+*.log
+
+# Временные файлы
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+.tox/
+
+# Локальные настройки
+.env
+.git
+.github
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Документация
+docs/
+
+# Тесты
+tests/
+
+# Инструменты разработки
+setup.cfg
+tox.ini
+Makefile
+
+# Большие файлы и артефакты
+**/__pycache__/
+**/*.pyc 

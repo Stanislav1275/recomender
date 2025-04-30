@@ -1,14 +1,56 @@
+version: '3.8'
+
 services:
-  grpc-server:
+  recommendation_api:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: recommendation_api
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    ports:
+      - "8000:8000"
+    environment:
+      - RE_DB_HOST=${RE_DB_HOST}
+      - RE_DB=${RE_DB}
+      - RE_DB_USER=${RE_DB_USER}
+      - RE_DB_PASSWORD=${RE_DB_PASSWORD}
+      - RE_DB_PORT=${RE_DB_PORT}
+      - API_PORT=8000
+      - GRPC_PORT=50051
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - recommendation_network
+
+  recommendation_grpc:
+    build:
+      context: .
+      dockerfile: Dockerfile.grpc
+    container_name: recommendation_grpc
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
     ports:
       - "50051:50051"
     environment:
-      - PYTHONUNBUFFERED=1
+      - RE_DB_HOST=${RE_DB_HOST}
+      - RE_DB=${RE_DB}
+      - RE_DB_USER=${RE_DB_USER}
+      - RE_DB_PASSWORD=${RE_DB_PASSWORD}
+      - RE_DB_PORT=${RE_DB_PORT}
+      - GRPC_PORT=50051
+      - GRPC_MAX_WORKERS=10
+    depends_on:
+      - recommendation_api
     networks:
-      - recnet
+      - recommendation_network
+
 networks:
-  recnet:
+  recommendation_network:
     driver: bridge

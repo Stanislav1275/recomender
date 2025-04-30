@@ -1,18 +1,48 @@
-FROM python:3.12
+FROM python:3.9-slim AS builder
 
-WORKDIR /app
+# Установка необходимых зависимостей для компиляции
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Установка виртуального окружения
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 # Установка зависимостей
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install rectools[lightfm]
-RUN pip install pymysql
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Копирование только необходимых файлов
-COPY core/ ./core/
-COPY models.py models.py
-COPY recommendations/ ./recommendations/
-COPY grpc_server.py .
+FROM python:3.9-slim
 
-# Запуск сервера
-CMD ["python", "grpc_server.py"]
+# Копирование виртуального окружения из этапа сборки
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Настройка переменных окружения
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONOPTIMIZE=1
+
+# Создание рабочего каталога
+WORKDIR /app
+
+# Копирование кода приложения
+COPY . /app/
+
+# Создание директорий для моделей
+RUN mkdir -p /app/data/cur /app/data/prev && \
+    chmod -R 777 /app/data
+
+# Создание непривилегированного пользователя
+RUN adduser --disabled-password --gecos "" appuser && \
+    chown -R appuser:appuser /app
+
+# Переключение на непривилегированного пользователя
+USER appuser
+
+# Запуск приложения
+CMD ["python", "main.py"]

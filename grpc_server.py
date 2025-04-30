@@ -1,36 +1,38 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+Скрипт для запуска отдельного gRPC сервера рекомендаций.
+"""
+
+import asyncio
 import logging
-from concurrent import futures
+from recommendations.rec_server import serve
+from recommendations.config import GRPC_CONFIG
 
-import grpc
-from recommendations.protos.recommendations_pb2_grpc import add_RecommenderServicer_to_server
-from recommendations.rec_server import RecommenderService
-from recommendations.rec_service import ModelManager
-
-logging.basicConfig(level=logging.INFO)
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 
-async def serve():
-    # Инициализация модели
-    manager = ModelManager()
-    await manager.initialize()
-
-    # Настройка gRPC сервера
-    server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=10))
-    add_RecommenderServicer_to_server(RecommenderService(), server)
-
-    # Прослушивание порта
-    server.add_insecure_port('[::]:50051')
-    await server.start()
-    logger.info("gRPC server started on port 50051")
-
+async def main():
+    """
+    Основная функция для запуска gRPC сервера.
+    """
     try:
-        await server.wait_for_termination()
+        logger.info("Запуск отдельного gRPC сервера...")
+        await serve(
+            host=f"{GRPC_CONFIG['host']}:{GRPC_CONFIG['port']}",
+            max_workers=GRPC_CONFIG['max_workers']
+        )
     except KeyboardInterrupt:
-        await server.stop(5)
+        logger.info("Сервер остановлен пользователем")
+    except Exception as e:
+        logger.error(f"Ошибка запуска сервера: {e}")
 
 
 if __name__ == '__main__':
-    import asyncio
-
-    asyncio.run(serve())
+    logger.info("Инициализация gRPC сервера рекомендаций")
+    asyncio.run(main())

@@ -61,11 +61,6 @@ def fetch_data_in_parallel():
                 db.query(TitlesGenres).statement,
                 db.bind
             )
-            # similar_future = executor.submit(
-            #     pd.read_sql_query,
-            #     db.query(SimilarTitles).limit(USERS_LIMIT).statement,
-            #     db.bind
-            # )
             relations_future = executor.submit(
                 pd.read_sql_query,
                 db.query(TitlesTitleRelation).statement,
@@ -76,31 +71,84 @@ def fetch_data_in_parallel():
             titles_categories_pd = categories_future.result()
             titles_genres_pd = genres_future.result()
             titles_relations_pd = relations_future.result()
-            # similar_titles_pd = similar_future.result()
 
     return titles_pd, titles_categories_pd, titles_genres_pd, titles_relations_pd
 
 
-def map_ratings(rating: int):
+def map_ratings(rating: int) -> float:
+    if rating is None:
+        return 0.0
+        
+    try:
+        rating = int(rating)
+    except (ValueError, TypeError):
+        return 0.0
+        
     if rating <= 2:
         return -rating * 0.3
-    if rating == 3:
-        return -1
-    if rating == 4:
+    elif rating == 3:
+        return -1.0
+    elif rating == 4:
         return 0.8
-    return 3 - (rating * 0.7)
+    else:
+        return 3.0 - (rating * 0.7)
 
 
 def map_bookmark_type_id(bookmark_type_id):
     switcher = {
-        1: 7,
-        2: 8,
-        3: 7,
+        1: 7.0,
+        2: 8.0,
+        3: 7.0,
         4: -0.1,
-        5: 3,
+        5: 3.0,
         6: -0.1,
     }
-    return switcher.get(bookmark_type_id, 1)
+    return switcher.get(bookmark_type_id, 1.0)
+
+
+class HotUpdatesManager:
+    _buffer = []
+    _lock = asyncio.Lock()
+    _max_buffer_size = 100
+    
+    @classmethod
+    async def add_interaction(cls, user_id: int, item_id: int, weight: float, interaction_type: str):
+        async with cls._lock:
+            try:
+                now = pd.Timestamp.now()
+                
+                cls._buffer.append({
+                    Columns.User: user_id,
+                    Columns.Item: item_id,
+                    Columns.Weight: weight,
+                    Columns.Datetime: now,
+                    'interaction_type': interaction_type
+                })
+                
+                logger.info(f"Добавлено новое взаимодействие: пользователь={user_id}, произведение={item_id}, тип={interaction_type}")
+                
+                if len(cls._buffer) >= cls._max_buffer_size:
+                    logger.info(f"Буфер взаимодействий достиг максимального размера ({cls._max_buffer_size})")
+                
+                return True
+            except Exception as e:
+                logger.error(f"Ошибка добавления взаимодействия: {e}")
+                return False
+    
+    @classmethod
+    async def get_buffer_as_dataframe(cls):
+        async with cls._lock:
+            if not cls._buffer:
+                return pd.DataFrame(columns=[Columns.User, Columns.Item, Columns.Weight, Columns.Datetime])
+                
+            df = pd.DataFrame(cls._buffer)
+            return df
+    
+    @classmethod
+    async def clear_buffer(cls):
+        async with cls._lock:
+            cls._buffer = []
+            logger.info("Буфер взаимодействий очищен")
 
 
 class BlacklistManager:
@@ -136,6 +184,8 @@ class BlacklistManager:
     @classmethod
     async def refresh_blacklist(cls):
         cls._black_titles_ids = None
+        await cls.get_black_titles_ids()
+        logger.info("Черный список обновлен")
 
 
 class DataPrepareService:
@@ -179,11 +229,9 @@ class DataPrepareService:
 
         with SessionLocal() as db:
             cur_date = datetime.now()
-            # thirty_days_ago = cur_date - timedelta(days=DAYS)
             user_title_data_pd = pd.read_sql_query(
                 db.query(UserTitleData)
                 .filter(
-                    # UserTitleData.last_read_date >= thirty_days_ago,
                     ~UserTitleData.title_id.in_(black_list))
                 .statement, db.bind)
             user_title_data_pd.rename({"last_read_date": Columns.Datetime}, inplace=True)
@@ -285,10 +333,7 @@ class DataPrepareService:
     async def _get_ratings(black_list: set):
         with SessionLocal() as db:
             cur_date = datetime.now()
-            # thirty_days_ago = cur_date - timedelta(days=DAYS)
-            # .filter(Rating.date.between(thirty_days_ago, cur_date))
             query = db.query(Rating).filter(
-                # Rating.date >= thirty_days_ago,
                 ~Rating.title_id.in_(black_list)).limit(1000).statement
             ratings_pd = pd.read_sql_query(query, db.bind)
             ratings_pd.rename({"date": Columns.Datetime, "title_id": Columns.Item, "rating": Columns.Weight},
@@ -417,7 +462,6 @@ class DataPrepareService:
             var_name='feature',
             value_name='value'
         ).explode('value')
-        # titles_features_long[Columns.Weight] = 2
         titles_features_long.to_pickle("data/title_features.pickle")
 
         return titles_features_long
