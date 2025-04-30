@@ -1,5 +1,17 @@
-# Dockerfile для сервиса рекомендаций
 FROM python:3.9-slim
+
+# Установка системных зависимостей для компиляции LightFM и других пакетов
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    gcc \
+    g++ \
+    libomp-dev \
+    python3-dev \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Установка переменной окружения для OpenMP
+ENV OMP_NUM_THREADS=1
 
 WORKDIR /app
 

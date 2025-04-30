@@ -10,7 +10,7 @@ uvicorn~=0.34.0
 numpy~=1.26.4
 threadpoolctl~=3.5.0
 implicit~=0.7.2
-RecTools[lightfm]
+rectools[lightfm]==0.13.0
 pytest~=8.2.0
 h11~=0.14.0
 pip~=25.0
