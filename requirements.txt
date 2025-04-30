@@ -18,8 +18,9 @@ grpcio-tools==1.54.2
 protobuf==4.23.3
 
 # Рекомендательные модели
-rectools[lightfm]==0.4.0
-lightfm==1.17
+rectools==0.4.0
+# Используем прямую ссылку на GitHub для установки LightFM вместо версии из PyPI
+git+https://github.com/lyst/lightfm.git@master#egg=lightfm
 threadpoolctl==3.1.0
 apscheduler==3.10.1
 pytz==2023.3
