@@ -15,7 +15,9 @@ import pytz
 import warnings
 from lightfm import LightFM
 from pandas import DataFrame
+from rectools import Columns
 from rectools.dataset import Dataset, Interactions
+from rectools.model_selection import TimeRangeSplitter
 from rectools.models import LightFMWrapperModel, load_model
 from rectools.models.base import ModelBase
 
@@ -73,20 +75,20 @@ class ModelManager:
             user_features = await DataPrepareService.get_users_features()
             items_features = await DataPrepareService.get_titles_features()
             interactions = await DataPrepareService.get_interactions()
-            print(interactions.head(50))
-
             if interactions.empty:
                 raise ValueError("Данные взаимодействий пусты. Обучение невозможно.")
 
             dataset = Dataset.construct(
                 interactions_df=interactions,
+
                 user_features_df=user_features,
                 cat_user_features=["age_group", "sex", "preference"],
                 item_features_df=items_features,
                 cat_item_features=["type_id", "genres", "categories", "count_chapters", "age_limit", "relation_list"],
             )
 
-            model = LightFMWrapperModel(LightFM(no_components=20, loss="bpr", random_state=60),  num_threads=3, epochs=2)
+            model = LightFMWrapperModel(LightFM(no_components=100, loss="bpr", random_state=60), num_threads=3,
+                                        epochs=30)
 
             logger.info("Начинаем обучение модели...")
             model.fit(dataset)
@@ -197,6 +199,7 @@ class RecService:
     @staticmethod
     async def rec(user_id: int, context: grpc.ServicerContext):
         await RecService._handle_request(context)
+
         try:
             model, dataset = await ModelManager().get_model()
             logger.debug(f"Using model: {model}")
@@ -244,7 +247,8 @@ class RecService:
             print(items_features.head())
             print(interactions.head(50))
 
-            model = LightFMWrapperModel(LightFM(no_components=20, loss="bpr", random_state=60), num_threads=3, epochs=2)
+            model = LightFMWrapperModel(LightFM(no_components=100, loss="bpr", random_state=60), num_threads=3,
+                                        epochs=30)
             dataset = Dataset.construct(
 
                 interactions_df=interactions,
@@ -253,7 +257,6 @@ class RecService:
                 item_features_df=items_features,
                 cat_item_features=["type_id", "genres", "categories", "count_chapters", "age_limit", "relation_list"],
             )
-
 
             model.fit(dataset)
 
