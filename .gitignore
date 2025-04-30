@@ -18,4 +18,5 @@ model/*.pkl
 data/dataset.pkl
 data/model.csv
 
-.qodo
+/data/*
+/data/**/*
