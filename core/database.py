@@ -25,7 +25,6 @@ engine = create_engine(
     max_overflow=10,
     pool_timeout=30,
     pool_recycle=3600,
-    connect_args={"read_only": True},  # Подключение только для чтения
 )
 
 # Создание фабрики сессий

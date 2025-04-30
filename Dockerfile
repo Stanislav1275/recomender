@@ -1,4 +1,4 @@
-FROM python:3.9-slim AS builder
+FROM python:3.12.3 AS builder
 
 # Установка необходимых зависимостей для компиляции
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-FROM python:3.9-slim
+FROM python:3.12.3
 
 # Копирование виртуального окружения из этапа сборки
 COPY --from=builder /opt/venv /opt/venv
