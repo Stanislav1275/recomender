@@ -5,16 +5,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
     python3-dev \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Установка виртуального окружения
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
+# Установка базовых инструментов перед другими зависимостями
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
 # Установка зависимостей
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 FROM python:3.9-slim
 
