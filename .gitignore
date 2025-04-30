@@ -17,6 +17,10 @@ model/*.csv
 model/*.pkl
 data/dataset.pkl
 data/model.csv
-
+re_venv/*
+.re_env
+.re_venv
+.re_venv/*
+.re_venv/**/*
 /data/*
 /data/**/*
