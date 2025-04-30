@@ -10,7 +10,7 @@ uvicorn~=0.34.0
 numpy~=1.26.4
 threadpoolctl~=3.5.0
 implicit~=0.7.2
-RecTools~=0.12.0
+RecTools[lightfm]
 pytest~=8.2.0
 h11~=0.14.0
 pip~=25.0
@@ -60,5 +60,5 @@ importlib_metadata~=8.5.0
 APScheduler~=3.11.0
 aioredis~=2.0.1
 redis~=5.0.2
-lightfm~=1.17
+lightfm
 kafka-python~=2.0.2
