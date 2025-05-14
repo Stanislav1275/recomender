@@ -250,8 +250,8 @@ class Titles(Base):
     total_votes = Column(Integer)
     avg_rating = Column(DECIMAL(10, 1))
     uploaded = Column(Integer)
+    last_chapter_uploaded = Column(DateTime, nullable=True)
     is_legal = Column(Integer)
-    uploaded = Column(Integer)
     is_licensed = Column(Integer)
 
 
@@ -292,9 +292,9 @@ class TitleChapter(Base):
     __tablename__ = 'title_chapters'
 
     id = Column(BigInteger, primary_key=True)
-    chapter = Column(String(30))
     is_published = Column(Boolean)
     is_deleted = Column(Boolean)
+    is_paid = Column(Boolean)
     title_id = Column(BigInteger, ForeignKey('titles.id'))
 
 
@@ -318,7 +318,6 @@ class UserTitleData(Base):
     user_id = Column(BigInteger, ForeignKey('users.id'))
     chapter_votes = Column(JSON, nullable=False)
     chapter_views = Column(JSON, nullable=False)
-
 
 
 class RawUsers(Base):
