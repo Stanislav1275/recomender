@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 from core.database import SessionLocal
 from models import Titles
-from recommendations.data_preparer import get_db, map_ratings
+from recommendations.data_preparer import get_db, map_ratings, DataPrepareService
 from recommendations.protos.recommendations_pb2_grpc import add_RecommenderServicer_to_server
 from recommendations.rec_server import RecommenderService
 from recommendations.rec_service import ModelManager, RecService
@@ -70,7 +70,7 @@ async def train():
 async def rec_by_users(user_id: int, db: Session = Depends(get_db)):
     try:
         model, dataset = await ModelManager().get_model()
-        recos = model.recommend(users=[user_id], dataset=dataset, k=5, filter_viewed=True)
+        recos = model.recommend(users=[user_id], dataset=dataset, k=40, filter_viewed=True)
         item_ids = recos['item_id'].tolist()
         stmt = select(Titles).where(Titles.id.in_(item_ids))
 
@@ -79,9 +79,11 @@ async def rec_by_users(user_id: int, db: Session = Depends(get_db)):
 
         sorted_result = sorted(result, key=lambda x: order.get(x.id, len(item_ids)))
 
+        await DataPrepareService._get_user_buys({})
         return sorted_result
 
     except Exception as e:
+        logger.error(e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -89,10 +91,10 @@ async def rec_by_users(user_id: int, db: Session = Depends(get_db)):
 async def rec_by_title(title_id: int, db: Session = Depends(get_db)):
     try:
         model, dataset = await ModelManager().get_model()
-        recos = model.recommend_to_items(target_items=[title_id], dataset=dataset, k=10, filter_itself=True)
+        recos = model.recommend_to_items(target_items=[title_id], dataset=dataset, k=40, filter_itself=False)
         item_ids = recos['item_id'].tolist()
-        stmt = select(Titles).where(Titles.id.in_(item_ids))
 
+        stmt = select(Titles).where(Titles.id.in_(item_ids))
         order = {id_: idx for idx, id_ in enumerate(item_ids)}
         result = db.execute(stmt).scalars().all()
 

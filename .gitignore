@@ -2,6 +2,17 @@
 .venv
 venv
 env
+.re_venv
+.re_env
+.re_env/*
+.re_env/**
+.re_env/**/*
+re_venv
+re_env
+re_env/*
+re_env/**
+re_env/**/*
+re_
 .env
 .idea
 */__pycache__/*.pyc
@@ -18,4 +29,5 @@ model/*.pkl
 data/dataset.pkl
 data/model.csv
 
-.qodo
+/data/*
+/data/**/*
