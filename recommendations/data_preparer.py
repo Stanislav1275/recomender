@@ -4,10 +4,10 @@ from datetime import  datetime
 
 import numpy as np
 from rectools import Columns
-from sqlalchemy import func, select, distinct
+from sqlalchemy import distinct
 from sqlalchemy.exc import SQLAlchemyError
 
-from models import RawUsers, Bookmarks, Rating, UserTitleData, \
+from external_db.models import RawUsers, Bookmarks, Rating, UserTitleData, \
     TitlesTitleRelation, Comments, UserBuys, TitleChapter, TitlesSites
 import warnings
 import os
@@ -27,7 +27,8 @@ logger = logging.getLogger(__name__)
 
 
 def get_db():
-    db = SessionLocal()
+    """Функция для получения сессии БД в FastAPI endpoints"""
+    db = ExternalClashErrorSessionLocal()
     try:
         yield db
     finally:
@@ -36,14 +37,14 @@ def get_db():
 
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
-from core.database import SessionLocal
-from models import Titles, TitlesCategories, TitlesGenres
+from external_db.db_connecter import ExternalClashErrorSessionLocal, get_external_session
+from external_db.models import Titles, TitlesCategories, TitlesGenres
 
 MIN_VOTES = 100
 
 
 def fetch_data_in_parallel():
-    with SessionLocal() as db:
+    with get_external_session() as db:
         with ThreadPoolExecutor() as executor:
             # Define tasks for parallel execution
             titles_future = executor.submit(
@@ -108,11 +109,11 @@ class BlacklistManager:
 
     @classmethod
     def has_block_title(cls, model: Titles):
-        return (model.count_chapters == 0) or model.is_yaoi == 1 or model.uploaded == 0
+        return model.count_chapters == 0 or model.is_yaoi == 1 or model.uploaded == 0
 
     @classmethod
     async def _fetch_black_titles_ids(cls):
-        with SessionLocal() as db:
+        with get_external_session() as db:
             black_query = db.query(Titles.id).filter(
                 (Titles.count_chapters == 0) |
                 (Titles.is_yaoi == 1) |
@@ -157,7 +158,7 @@ class DataPrepareService:
 
         black_list = await BlacklistManager.get_black_titles_ids()
 
-        with SessionLocal() as db:
+        with get_external_session() as db:
             paid_titles = db.query(
                 distinct(TitleChapter.title_id)
             ).filter(
@@ -177,7 +178,7 @@ class DataPrepareService:
     @staticmethod
     async def _get_user_title_data(black_list: set):
 
-        with SessionLocal() as db:
+        with get_external_session() as db:
             cur_date = datetime.now()
             # thirty_days_ago = cur_date - timedelta(days=DAYS)
             user_title_data_pd = pd.read_sql_query(
@@ -215,7 +216,7 @@ class DataPrepareService:
 
     @staticmethod
     async def _get_bookmarks(black_list: set):
-        with SessionLocal() as db:
+        with get_external_session() as db:
             bookmarks_pd = pd.read_sql_query(db.query(Bookmarks).filter(Bookmarks.is_default == 1,
                                                                         ~Bookmarks.title_id.in_(black_list)).limit(
                 USERS_LIMIT).statement,
@@ -230,7 +231,7 @@ class DataPrepareService:
 
     @staticmethod
     async def _get_comments(black_list: set):
-        with SessionLocal() as db:
+        with get_external_session() as db:
             try:
                 query = db.query(Comments).filter(
                     Comments.title_id.isnot(None),
@@ -268,7 +269,7 @@ class DataPrepareService:
 
     @staticmethod
     async def _get_user_buys(black_list: set):
-        with (SessionLocal() as db):
+        with get_external_session() as db:
             query = db.query(UserBuys.user_id, UserBuys.date, TitleChapter.title_id
                              ).join(TitleChapter, UserBuys.chapter_id == TitleChapter.id).filter(
                 ~TitleChapter.title_id.in_(black_list)
@@ -283,7 +284,7 @@ class DataPrepareService:
 
     @staticmethod
     async def _get_ratings(black_list: set):
-        with SessionLocal() as db:
+        with get_external_session() as db:
             cur_date = datetime.now()
             # thirty_days_ago = cur_date - timedelta(days=DAYS)
             # .filter(Rating.date.between(thirty_days_ago, cur_date))
@@ -316,7 +317,7 @@ class DataPrepareService:
 
         black_list = await BlacklistManager.get_black_titles_ids()
 
-        with SessionLocal() as db:
+        with get_external_session() as db:
             result = db.query(Titles.id, Titles.last_chapter_uploaded).where(
                 Titles.id.in_(df[Columns.Item].unique()),
                 ~Titles.id.in_(black_list),
@@ -357,7 +358,7 @@ class DataPrepareService:
 
     @staticmethod
     async def get_users_features():
-        with SessionLocal() as db:
+        with get_external_session() as db:
             users_pd = pd.read_sql_query(
                 db.query(RawUsers).filter_by(is_banned=0).limit(3000).statement,
                 db.bind

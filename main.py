@@ -8,24 +8,40 @@ from fastapi import FastAPI, Depends, HTTPException
 import grpc
 from concurrent import futures
 import asyncio
+import mongoengine
 
 from rectools import Columns
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.middleware.cors import CORSMiddleware
-from starlette.responses import JSONResponse
 
 warnings.filterwarnings('ignore')
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
-from core.database import SessionLocal
-from models import Titles
+from external_db.models import Titles
 from recommendations.data_preparer import get_db, map_ratings, DataPrepareService
 from recommendations.protos.recommendations_pb2_grpc import add_RecommenderServicer_to_server
 from recommendations.rec_server import RecommenderService
 from recommendations.rec_service import ModelManager, RecService
+from src.routes.admin_routes import router as admin_router
 
-app = FastAPI()
+
+mongoengine.connect(
+    db='recommender_db',
+    host='localhost',
+    port=27017,
+    username='admin',
+    password='password',
+    alias='default'
+)
+
+app = FastAPI(
+    title="Рекомендательный сервис",
+    description="API рекомендательного сервиса с администраторской панелью",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*", "http://localhost:3001", "http://localhost:3000"],  # Разрешить все домены
@@ -35,6 +51,7 @@ app.add_middleware(
 # gRPC server setup
 grpc_server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=1))
 
+app.include_router(admin_router)
 
 @app.on_event("startup")
 async def startup_event():
@@ -138,6 +155,7 @@ async def hot_update_interact(user_id: int, title_id: int, int_type: Literal['ra
 
 @app.get("/health")
 async def health_check():
+    print("aboba")
     return {
         "status": "ok",
         "grpc_server": "running",

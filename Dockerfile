@@ -10,7 +10,7 @@ RUN pip install pymysql
 
 # Копирование только необходимых файлов
 COPY core/ ./core/
-COPY models.py models.py
+COPY external_db/models.py models.py
 COPY recommendations/ ./recommendations/
 COPY grpc_server.py .
 
