@@ -1,15 +1,14 @@
+from datetime import datetime, timezone
 from typing import List, Optional
+
+from bson import ObjectId
+
 from external_db.db_connecter import get_external_session
 from external_db.models import DjangoSite
 from internal.models import RecommendationConfig as DBRecommendationConfig
-from datetime import datetime, timezone
-from bson import ObjectId
 from internal.types import (
-    FieldOptions,
-    RelatedTableMetadata,
     FieldMetadata
 )
-
 from internal.utils.field_mapping import RELATED_TABLE_MAPPINGS, TITLES_FIELD_MAPPINGS
 
 

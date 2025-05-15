@@ -35,7 +35,6 @@ class Categories(ExternalBase):
 
     id = Column(BigInteger, primary_key=True)
     name = Column(String(30), unique=True)
-    description = Column(Text)
     dir = Column(String(120))
 
 
@@ -52,7 +51,6 @@ class Collections(ExternalBase):
 
     id = Column(BigInteger, primary_key=True)
     name = Column(String(150))
-    description = Column(Text)
     cover_source = Column(String(256), nullable=True)
     is_published = Column(Integer)
     position = Column(Integer)
@@ -89,7 +87,7 @@ class Genres(ExternalBase):
 
     id = Column(BigInteger, primary_key=True)
     name = Column(String(30), unique=True)
-    description = Column(Text)
+    # description = Column(Text)
     dir = Column(String(120))
 
 
@@ -158,7 +156,7 @@ class TagsTags(ExternalBase):
 
     id = Column(BigInteger, primary_key=True)
     name = Column(String(30), unique=True)
-    description = Column(Text)
+    # description = Column(Text)
     dir = Column(String(120))
 
 
@@ -216,7 +214,7 @@ class TitleType(ExternalBase):
 
     id = Column(BigInteger, primary_key=True)
     name = Column(String(30), unique=True)
-    description = Column(Text)
+    # description = Column(Text)
     dir = Column(String(120))
 
 

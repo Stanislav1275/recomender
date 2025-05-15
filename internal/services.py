@@ -1,12 +1,11 @@
-from typing import List, Optional, Tuple
-from internal.repositories import ConfigRepository, FieldMappingRepository
-from internal.models import RecommendationConfig as DBRecommendationConfig, FieldFilter as DBFieldFilter, RelatedTableFilter as DBRelatedTableFilter, FilterOperator, ScheduleConfig as DBScheduleConfig
 from datetime import datetime, timezone
+from typing import List, Optional, Tuple
+
 from external_db.data_service import ExternalDataService
+from internal.models import RecommendationConfig as DBRecommendationConfig, FieldFilter as DBFieldFilter, \
+    RelatedTableFilter as DBRelatedTableFilter, FilterOperator, ScheduleConfig as DBScheduleConfig
+from internal.repositories import ConfigRepository
 from internal.types import (
-    FieldFilter,
-    RelatedTableFilter,
-    ScheduleConfig,
     RecommendationConfig,
     FieldOptions,
     ConfigWithMetadata
@@ -119,36 +118,75 @@ class ConfigService:
         config.updated_at = datetime.now(timezone.utc)
         config.save()
         return config
-    
+
     @staticmethod
     def get_config_with_metadata(config_id: str) -> Optional[ConfigWithMetadata]:
         """Получить конфигурацию с метаданными"""
         config = ConfigRepository.get_by_id(config_id)
         if not config:
             return None
-        
+
         # Получаем данные из внешней БД для отображения
         external_data = ExternalDataService()
-        
+
         # Получаем словарь конфигурации и преобразуем ObjectId в строку
         config_dict = config.to_mongo().to_dict()
         if '_id' in config_dict:
             config_dict['_id'] = str(config_dict['_id'])
-        
-        # Собираем информацию о полях для отображения в админке
+
+        # --- Добавляем description в title_fields ---
+        title_fields = external_data.get_field_metadata()
+        for field_key, field in title_fields.items():
+            if 'description' not in field:
+                field['description'] = field['name']
+            # Если есть values, добавим description для каждого значения (если нужно)
+            if 'values' in field and isinstance(field['values'], list):
+                for v in field['values']:
+                    if 'description' not in v:
+                        v['description'] = v.get('name', '')
+
+        # --- Добавляем description в related_tables и их поля ---
+        related_tables = external_data.get_related_tables_metadata()
+        for table_key, table in related_tables.items():
+            if 'description' not in table:
+                table['description'] = table['name']
+            if 'fields' in table:
+                for field_key, field in table['fields'].items():
+                    if 'description' not in field:
+                        field['description'] = field['name']
+                    if 'values' in field and isinstance(field['values'], list):
+                        for v in field['values']:
+                            if 'description' not in v:
+                                v['description'] = v.get('name', '')
+
+        operators = [
+            {'value': op.value, 'display': op.value}
+            for op in FilterOperator
+        ] if 'FilterOperator' in globals() else []
+
+        schedule_types = [
+            {'value': 'once_day', 'display': 'Ежедневно(00:00)'},
+            {'value': 'once_year', 'display': 'Ежегодно (14.02:04:00), приоритетнее ежедневных'}
+        ]
+
+        # --- Формируем sites ---
+        sites = external_data.get_sites()
+        formatted_sites = {
+            "values": [site["id"] for site in sites],
+            "mapping": [site["name"] for site in sites]
+        }
+
         result: ConfigWithMetadata = {
             'config': config_dict,
             'metadata': {
-                'title_fields': external_data.get_field_metadata(),
-                'related_tables': external_data.get_related_tables_metadata(),
-                'sites': {
-                    "values": [site["id"] for site in external_data.get_sites()],
-                    "mapping": [site["name"] for site in external_data.get_sites()]
-                },
-                'operators': [op.value for op in FilterOperator]
+                'title_fields': title_fields,
+                'related_tables': related_tables,
+                'sites': formatted_sites,
+                'operators': [],
+                'schedule_types': schedule_types
             }
         }
-        
+
         return result
 
 
@@ -157,10 +195,8 @@ class AdminPanelService:
     
     @staticmethod
     def get_field_options() -> FieldOptions:
-        """Получить опции полей для формы в админке"""
         external_data = ExternalDataService()
 
-        # Получаем метаданные полей из внешней БД
         title_fields = external_data.get_field_metadata()
         related_tables = external_data.get_related_tables_metadata()
         sites = external_data.get_sites()
@@ -169,7 +205,6 @@ class AdminPanelService:
             "values": [site["id"] for site in sites],
             "mapping": [site["name"] for site in sites]
         }
-
         operators = [
             {'value': op.value, 'display': op.value}
             for op in FilterOperator
@@ -184,34 +219,9 @@ class AdminPanelService:
             'title_fields': title_fields,
             'related_tables': related_tables,
             'sites': formatted_sites,
-            'operators': operators,
+            'operators': [],
             'schedule_types': schedule_types
         }
-    
-    @staticmethod
-    def get_config_template() -> RecommendationConfig:
-        """Получить шаблон конфигурации для создания"""
-        return {
-            'name': '',
-            'description': '',
-            'is_active': True,
-            'title_field_filters': [],
-            'related_table_filters': [],
-            'schedules_dates': [
-                {
-                    'type': 'once_day',
-                    'date_like': '04:00',
-                    'is_active': True
-                }
-            ],
-            'created_at': datetime.now(timezone.utc),
-            'updated_at': datetime.now(timezone.utc)
-        }
-    
-    @staticmethod
-    def get_config_with_metadata(config_id: str) -> Optional[ConfigWithMetadata]:
-        """Получить конфигурацию с метаданными"""
-        return ConfigService.get_config_with_metadata(config_id)
     
     @staticmethod
     def validate_config(config_data: RecommendationConfig) -> Tuple[bool, List[str]]:

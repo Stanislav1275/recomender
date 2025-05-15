@@ -10,7 +10,7 @@ from internal.types import (
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-@router.get("/field-options", response_model=FieldOptions)
+@router.get("/field-options")
 async def get_field_options() -> FieldOptions:
     """
     Get all available field options for the admin panel.

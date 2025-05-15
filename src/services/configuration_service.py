@@ -11,20 +11,15 @@ class AdminPanelService:
         """Получить опции полей для формы в админке"""
         external_data = ExternalDataService()
 
-        # Получаем метаданные полей из внешней БД
         title_fields = external_data.get_field_metadata()
         related_tables = external_data.get_related_tables_metadata()
         sites = external_data.get_sites()
-
         formatted_sites = {
             "values": [site["id"] for site in sites],
             "mapping": [site["name"] for site in sites]
         }
 
-        operators = [
-            {'value': op.value, 'display': op.value}
-            for op in FilterOperator
-        ]
+        operators = [op.value for op in FilterOperator]
 
         schedule_types = [
             {'value': 'once_day', 'display': 'Ежедневно(00:00)'},
@@ -35,7 +30,7 @@ class AdminPanelService:
             'title_fields': title_fields,
             'related_tables': related_tables,
             'sites': formatted_sites,
-            'operators': operators,
+            # 'operators': operators,
             'schedule_types': schedule_types
         }
 
@@ -82,7 +77,7 @@ class AdminPanelService:
                     "values": [site["id"] for site in external_data.get_sites()],
                     "mapping": [site["name"] for site in external_data.get_sites()]
                 },
-                'operators': [op.value for op in FilterOperator]
+                # 'operators': [op.value for op in FilterOperator]
             }
         }
 
