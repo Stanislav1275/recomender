@@ -126,10 +126,8 @@ class ConfigService:
         if not config:
             return None
 
-        # Получаем данные из внешней БД для отображения
         external_data = ExternalDataService()
 
-        # Получаем словарь конфигурации и преобразуем ObjectId в строку
         config_dict = config.to_mongo().to_dict()
         if '_id' in config_dict:
             config_dict['_id'] = str(config_dict['_id'])

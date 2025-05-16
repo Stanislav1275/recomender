@@ -104,5 +104,3 @@ def get_mongo_session():
         raise
     finally:
         session.close()
-
-# Для совместимости с SQLAlchemy стилем

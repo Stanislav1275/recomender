@@ -87,7 +87,7 @@ db.recommendation_configs.insertOne({
     },
     {
       field_name: "is_legal",
-      operator: "equals",
+      operator: "equals", 
       values: [1]
     }
   ],
@@ -115,7 +115,7 @@ db.recommendation_configs.insertOne({
     },
     {
       field_name: "is_legal",
-      operator: "in",
+      operator: "in", 
       values: [1]
     }
   ],

@@ -54,7 +54,7 @@ TITLES_FIELD_MAPPINGS: Dict[str, FieldMetadata] = {
         "name": "age_limit",
         "description": "Age restriction for the content",
         "type": FieldType.INTEGER,
-        "values": [{"id": v, "name": str(v)} for v in [0, 12, 16, 18, 21]]
+        "values": [{"id": v, "name": str(v)} for v in [0, 1, 2]]
     },
     "is_yaoi": {
         "name": "is_yaoi",

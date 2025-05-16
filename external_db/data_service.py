@@ -1,4 +1,4 @@
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any
 from sqlalchemy import select
 from external_db.db_connecter import get_external_session
 from external_db.models import DjangoSite, Titles, TitleStatus, Genres, Categories, TitleType
@@ -46,7 +46,7 @@ class ExternalDataService:
             stmt = select(Genres)
             result = session.execute(stmt).scalars().all()
             return [
-                {"id": genre.id, "name": genre.name, "description": genre.description}
+                {"id": genre.id, "name": genre.name}
                 for genre in result
             ]
     
@@ -57,7 +57,7 @@ class ExternalDataService:
             stmt = select(Categories)
             result = session.execute(stmt).scalars().all()
             return [
-                {"id": category.id, "name": category.name, "description": category.description}
+                {"id": category.id, "name": category.name}
                 for category in result
             ]
     

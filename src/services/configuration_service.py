@@ -30,10 +30,9 @@ class AdminPanelService:
             'title_fields': title_fields,
             'related_tables': related_tables,
             'sites': formatted_sites,
-            # 'operators': operators,
+            'operators': operators,
             'schedule_types': schedule_types
         }
-
     @staticmethod
     def get_config_template() -> Dict[str, Any]:
         """Получить шаблон конфигурации для создания"""
@@ -53,32 +52,19 @@ class AdminPanelService:
         }
 
     @staticmethod
-    def get_config_with_metadata(config_id: str) -> Optional[Dict[str, Any]]:
+    def get_config_by_uid(config_id: str) -> Optional[Dict[str, Any]]:
         """Получить конфигурацию с метаданными"""
         config = ConfigRepository.get_by_id(config_id)
         if not config:
             return None
 
-        # Получаем данные из внешней БД для отображения
-        external_data = ExternalDataService()
-
-        # Получаем словарь конфигурации и преобразуем ObjectId в строку
         config_dict = config.to_mongo().to_dict()
         if '_id' in config_dict:
-            config_dict['_id'] = str(config_dict['_id'])
+            config_dict['id'] = str(config_dict['_id'])
+            del config_dict['_id']
 
-        # Собираем информацию о полях для отображения в админке
         result = {
             'config': config_dict,
-            'metadata': {
-                'title_fields': external_data.get_field_metadata(),
-                'related_tables': external_data.get_related_tables_metadata(),
-                'sites': {
-                    "values": [site["id"] for site in external_data.get_sites()],
-                    "mapping": [site["name"] for site in external_data.get_sites()]
-                },
-                # 'operators': [op.value for op in FilterOperator]
-            }
         }
 
         return result

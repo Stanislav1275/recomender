@@ -5,7 +5,7 @@ from src.services.configuration_service import AdminPanelService
 from internal.types import (
     FieldOptions,
     RecommendationConfig,
-    ConfigWithMetadata
+    Config
 )
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -30,19 +30,25 @@ async def get_configs() -> List[RecommendationConfig]:
         config_dict = config.to_mongo().to_dict()
         # Convert ObjectId to string for JSON serialization
         if '_id' in config_dict:
-            config_dict['_id'] = str(config_dict['_id'])
+            config_dict['id'] = str(config_dict['_id'])
+            del config_dict['_id']
         result.append(config_dict)
     return result
 
-@router.get("/configs/{config_id}", response_model=ConfigWithMetadata)
-async def get_config(config_id: str) -> ConfigWithMetadata:
+@router.get("/configs/{config_id}", response_model=Config)
+async def get_config(config_id: str) -> Config:
     """
     Get a specific recommendation configuration with all its metadata.
     Returns detailed information about the configuration including all available options.
     """
-    config_data = AdminPanelService.get_config_with_metadata(config_id)
+    config_data = AdminPanelService.get_config_by_uid(config_id)
     if not config_data:
         raise HTTPException(status_code=404, detail="Configuration not found")
+    
+    # Преобразуем _id в id в конфигурации
+    if '_id' in config_data['config']:
+        config_data['config']['id'] = str(config_data['config']['_id'])
+        del config_data['config']['_id']
     
     return config_data
 
@@ -55,7 +61,8 @@ async def create_config(config_data: RecommendationConfig) -> RecommendationConf
     config = ConfigRepository.create(config_data)
     config_dict = config.to_mongo().to_dict()
     if '_id' in config_dict:
-        config_dict['_id'] = str(config_dict['_id'])
+        config_dict['id'] = str(config_dict['_id'])
+        del config_dict['_id']
     return config_dict
 
 @router.put("/configs/{config_id}", response_model=RecommendationConfig)
@@ -70,7 +77,8 @@ async def update_config(config_id: str, config_data: RecommendationConfig) -> Re
     
     config_dict = config.to_mongo().to_dict()
     if '_id' in config_dict:
-        config_dict['_id'] = str(config_dict['_id'])
+        config_dict['id'] = str(config_dict['_id'])
+        del config_dict['_id']
     return config_dict
 
 @router.delete("/configs/{config_id}")

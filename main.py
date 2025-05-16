@@ -24,30 +24,24 @@ from recommendations.protos.recommendations_pb2_grpc import add_RecommenderServi
 from recommendations.rec_server import RecommenderService
 from recommendations.rec_service import ModelManager, RecService
 from src.routes.admin_routes import router as admin_router
+from internal.config.mongo_adapter import MongoAdapter
 
+import uvicorn
+from internal.app import create_app
 
+# Инициализация MongoDB через MongoAdapter
+mongo_config = MongoAdapter()
 mongoengine.connect(
-    db='recommender_db',
-    host='localhost',
-    port=27017,
-    username='admin',
-    password='password',
+    db=mongo_config.db_name,
+    host=mongo_config.host,
+    port=mongo_config.port,
+    username=mongo_config.user,
+    password=mongo_config.password,
     alias='default'
 )
 
-app = FastAPI(
-    title="Рекомендательный сервис",
-    description="API рекомендательного сервиса с администраторской панелью",
-    version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc"
-)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*", "http://localhost:3001", "http://localhost:3000"],  # Разрешить все домены
-    allow_methods=["*"],  # Разрешить все методы (GET, POST и т.д.)
-    allow_headers=["*"]
-)
+app = create_app()
+
 # gRPC server setup
 grpc_server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=1))
 
@@ -78,12 +72,12 @@ async def shutdown_event():
     print("Services stopped")
 
 
-@app.get('/train')
+@app.post('/api/train')
 async def train():
     await RecService.train()
 
 
-@app.get("/titles/recommendations")
+@app.get("/api/titles/recommendations")
 async def rec_by_users(user_id: int, db: Session = Depends(get_db)):
     try:
         model, dataset = await ModelManager().get_model()
@@ -104,7 +98,7 @@ async def rec_by_users(user_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.get("/titles/relavant")
+@app.get("/api/titles/relavant")
 async def rec_by_title(title_id: int, db: Session = Depends(get_db)):
     try:
         model, dataset = await ModelManager().get_model()
@@ -123,7 +117,7 @@ async def rec_by_title(title_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.get("/rec/hot/interact")
+@app.get("/api/rec/hot/interact")
 async def hot_update_interact(user_id: int, title_id: int, int_type: Literal['rating', 'view'], raw_score: int = None,
                               db: Session = Depends(get_db)):
     try:
@@ -153,7 +147,7 @@ async def hot_update_interact(user_id: int, title_id: int, int_type: Literal['ra
     # return sorted_result
 
 
-@app.get("/health")
+@app.get("/api/health")
 async def health_check():
     print("aboba")
     return {
@@ -164,6 +158,9 @@ async def health_check():
 
 
 if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True
+    )
