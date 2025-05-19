@@ -110,20 +110,20 @@ class BlacklistManager:
     @classmethod
     def has_block_title(cls, model: Titles):
         return model.count_chapters == 0 or model.is_yaoi == 1 or model.uploaded == 0
-
+    # 
+    # db.query(TitleChapter.id).filter(TitleChapter.title_id == Titles.id, TitleChapter.volume_id.isnot(None)).exists()
+    # 
     @classmethod
     async def _fetch_black_titles_ids(cls):
         with get_external_session() as db:
             black_query = db.query(Titles.id).filter(
                 (Titles.count_chapters == 0) |
                 (Titles.is_yaoi == 1) |
-                (Titles.uploaded == 0)
+                (Titles.uploaded == 0),
             )
-
             site_filter_query = db.query(TitlesSites.title_id).filter(
                 TitlesSites.site_id != 1
             )
-
             result = black_query.union(site_filter_query)
             ids = {row.id for row in result.all()}
             return ids
@@ -179,7 +179,7 @@ class DataPrepareService:
     async def _get_user_title_data(black_list: set):
 
         with get_external_session() as db:
-            cur_date = datetime.now()
+            # cur_date = datetime.now()
             # thirty_days_ago = cur_date - timedelta(days=DAYS)
             user_title_data_pd = pd.read_sql_query(
                 db.query(UserTitleData)

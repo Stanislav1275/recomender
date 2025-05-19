@@ -319,6 +319,7 @@ class TitleChapter(ExternalBase):
     is_published = Column(Boolean)
     is_deleted = Column(Boolean)
     is_paid = Column(Boolean)
+    volume_id=Column(Integer)
     title_id = Column(BigInteger, ForeignKey('titles.id'))
 
 
