@@ -1,23 +1,31 @@
 # main.py
 import logging
+import os
+import sys
 import warnings
-from typing import Literal
+from typing import Literal, List, Optional
+
+# Добавляем корневую директорию проекта в PYTHONPATH
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pandas as pd
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import Depends, HTTPException
 import grpc
 from concurrent import futures
 import asyncio
 import mongoengine
+from pydantic import BaseModel, Field
+from datetime import datetime
+from bson import ObjectId
 
 from rectools import Columns
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from starlette.middleware.cors import CORSMiddleware
 
 warnings.filterwarnings('ignore')
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+
 from external_db.models import Titles
 from recommendations.data_preparer import get_db, map_ratings, DataPrepareService
 from recommendations.protos.recommendations_pb2_grpc import add_RecommenderServicer_to_server
@@ -25,6 +33,7 @@ from recommendations.rec_server import RecommenderService
 from recommendations.rec_service import ModelManager, RecService
 from src.routes.admin_routes import router as admin_router
 from internal.config.mongo_adapter import MongoAdapter
+from internal.models import RecommendationItem, RecommendationResult
 
 import uvicorn
 from internal.app import create_app
@@ -77,8 +86,39 @@ async def train():
     await RecService.train()
 
 
-@app.get("/api/titles/recommendations")
-async def rec_by_users(user_id: int, db: Session = Depends(get_db)):
+class CoverModel(BaseModel):
+    high: Optional[str] = None
+    low: Optional[str] = None
+    mid: Optional[str] = None
+
+class TitleResponse(BaseModel):
+    id: int
+    main_name: str
+    dir: str
+    status_id: int
+    type_id: int
+    age_limit: int
+    count_chapters: int
+    issue_year: int
+    is_yaoi: int
+    is_erotic: int
+    is_legal: int
+    is_licensed: int
+    total_views: int
+    total_votes: int
+    avg_rating: float = Field(ge=0, le=10)
+    cover: Optional[CoverModel] = None
+    upload_date: Optional[datetime] = None
+    last_chapter_uploaded: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+        json_encoders = {
+            ObjectId: str
+        }
+
+@app.get("/api/titles/recommendations", response_model=List[TitleResponse])
+async def rec_by_users(user_id: int, db: Session = Depends(get_db)) -> List[TitleResponse]:
     try:
         model, dataset = await ModelManager().get_model()
         recos = model.recommend(users=[user_id], dataset=dataset, k=40, filter_viewed=True)
@@ -98,8 +138,8 @@ async def rec_by_users(user_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.get("/api/titles/relavant")
-async def rec_by_title(title_id: int, db: Session = Depends(get_db)):
+@app.get("/api/titles/relavant", response_model=List[TitleResponse])
+async def rec_by_title(title_id: int, db: Session = Depends(get_db)) -> List[TitleResponse]:
     try:
         model, dataset = await ModelManager().get_model()
         recos = model.recommend_to_items(target_items=[title_id], dataset=dataset, k=40, filter_itself=False)
@@ -110,46 +150,14 @@ async def rec_by_title(title_id: int, db: Session = Depends(get_db)):
         result = db.execute(stmt).scalars().all()
 
         sorted_result = sorted(result, key=lambda x: order.get(x.id, len(item_ids)))
-
         return sorted_result
 
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.get("/api/rec/hot/interact")
-async def hot_update_interact(user_id: int, title_id: int, int_type: Literal['rating', 'view'], raw_score: int = None,
-                              db: Session = Depends(get_db)):
-    try:
-        # todo nuts
-        interact_pd = pd.DataFrame({
-            Columns.User: [user_id],
-            Columns.Item: [title_id],
-            Columns.Weight: [map_ratings(raw_score) if int_type == 'rating' else raw_score],
-            Columns.Datetime: [pd.Timestamp.now()],
-        })
-        print(interact_pd)
-        user_feature_pd = pd.DataFrame(columns=['id', 'feature', 'value'])
-        await ModelManager().fit_partial(new_interactions=interact_pd, new_user_features=user_feature_pd)
-    except Exception as exc:
-        logger.error("%s", exc, extra={"rich": True})
-        logger.debug("Exception information:", exc_info=True)
-        raise HTTPException(status_code=500, detail="aboba")
-
-    # item_ids = recos['item_id'].tolist()
-    # stmt = select(Titles).where(Titles.id.in_(item_ids))
-    #
-    # order = {id_: idx for idx, id_ in enumerate(item_ids)}
-    # result = db.execute(stmt).scalars().all()
-    #
-    # sorted_result = sorted(result, key=lambda x: order.get(x.id, len(item_ids)))
-
-    # return sorted_result
-
-
 @app.get("/api/health")
 async def health_check():
-    print("aboba")
     return {
         "status": "ok",
         "grpc_server": "running",

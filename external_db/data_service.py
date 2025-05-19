@@ -1,164 +1,47 @@
 from typing import Dict, List, Any
+from datetime import datetime
+
 from sqlalchemy import select
+
 from external_db.db_connecter import get_external_session
-from external_db.models import DjangoSite, Titles, TitleStatus, Genres, Categories, TitleType
+from external_db.models import DjangoSite, TitleStatus, TitleType, Genres
+
 
 class ExternalDataService:
     """Сервис для работы с данными из внешней БД"""
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
     
-    @staticmethod
-    def get_sites() -> List[Dict[str, Any]]:
+    async def get_sites(self) -> List[Dict[str, Any]]:
         """Получить список всех сайтов из таблицы DjangoSite"""
         with get_external_session() as session:
             stmt = select(DjangoSite)
             result = session.execute(stmt).scalars().all()
             return [
-                {"id": site.id, "name": site.name, "domain": site.domain}
+                {"value": site.id, "name": site.name}
                 for site in result
             ]
     
-    @staticmethod
-    def get_title_statuses() -> List[Dict[str, Any]]:
-        """Получить все статусы произведений"""
+    async def get_reference_data(self, model_class) -> List[Dict[str, Any]]:
+        """Получить справочные данные в формате id-name"""
         with get_external_session() as session:
-            stmt = select(TitleStatus)
+            stmt = select(model_class)
             result = session.execute(stmt).scalars().all()
             return [
-                {"id": status.id, "name": status.name}
-                for status in result
+                {"value": item.id, "name": item.name}
+                for item in result
             ]
-    
-    @staticmethod
-    def get_title_types() -> List[Dict[str, Any]]:
-        """Получить все типы произведений"""
-        with get_external_session() as session:
-            stmt = select(TitleType)
-            result = session.execute(stmt).scalars().all()
-            return [
-                {"id": type_.id, "name": type_.name}
-                for type_ in result
-            ]
-    
-    @staticmethod
-    def get_genres() -> List[Dict[str, Any]]:
-        """Получить все жанры"""
-        with get_external_session() as session:
-            stmt = select(Genres)
-            result = session.execute(stmt).scalars().all()
-            return [
-                {"id": genre.id, "name": genre.name}
-                for genre in result
-            ]
-    
-    @staticmethod
-    def get_categories() -> List[Dict[str, Any]]:
-        """Получить все категории"""
-        with get_external_session() as session:
-            stmt = select(Categories)
-            result = session.execute(stmt).scalars().all()
-            return [
-                {"id": category.id, "name": category.name}
-                for category in result
-            ]
-    
-    @staticmethod
-    def get_field_metadata() -> Dict[str, Dict[str, Any]]:
-        """Получить метаданные о полях таблицы Titles"""
-        return {
-            "status_id": {
-                "name": "Статус произведения",
-                "description": "Статус произведения",
-                "type": "reference",
-                "reference_table": "title_status",
-                "values": ExternalDataService.get_title_statuses()
-            },
-            "type_id": {
-                "name": "Тип произведения",
-                "description": "Тип произведения",
-                "type": "reference",
-                "reference_table": "title_type",
-                "values": ExternalDataService.get_title_types()
-            },
-            "is_yaoi": {
-                "name": "Яой",
-                "description": "Яой",
-                "type": "boolean",
-                "values": [
-                    {"id": 0, "name": "Нет"},
-                    {"id": 1, "name": "Да"}
-                ]
-            },
-            "is_erotic": {
-                "name": "Эротика",
-                "description": "Эротика",
-                "type": "boolean",
-                "values": [
-                    {"id": 0, "name": "Нет"},
-                    {"id": 1, "name": "Да"}
-                ]
-            },
-            "is_legal": {
-                "name": "Легальный",
-                "description": "Легальный",
-                "type": "boolean",
-                "values": [
-                    {"id": 0, "name": "Нет"},
-                    {"id": 1, "name": "Да"}
-                ]
-            },
-            "age_limit": {
-                "name": "Возрастное ограничение",
-                "description": "Возрастное ограничение",
-                "type": "integer",
-                "values": [
-                    {"id": 0, "name": "0+"},
-                    {"id": 1, "name": "12+"},
-                    {"id": 2, "name": "18+"}
-                ]
-            }
-        }
-    
-    @staticmethod
-    def get_related_tables_metadata() -> Dict[str, Dict[str, Any]]:
-        """Получить метаданные о связанных таблицах"""
-        return {
-            "titles_sites": {
-                "name": "Сайты произведения",
-                "description": "Сайты произведения",
-                "fields": {
-                    "site_id": {
-                        "name": "Сайт",
-                        "description": "Сайт",
-                        "type": "reference",
-                        "reference_table": "django_site",
-                        "values": ExternalDataService.get_sites()
-                    }
-                }
-            },
-            "titles_genres": {
-                "name": "Жанры произведения",
-                "description": "Жанры произведения",
-                "fields": {
-                    "genre_id": {
-                        "name": "Жанр",
-                        "description": "Жанр",
-                        "type": "reference",
-                        "reference_table": "genres",
-                        "values": ExternalDataService.get_genres()
-                    }
-                }
-            },
-            "titles_categories": {
-                "name": "Категории произведения",
-                "description": "Категории произведения",
-                "fields": {
-                    "category_id": {
-                        "name": "Категория",
-                        "description": "Категория",
-                        "type": "reference",
-                        "reference_table": "categories",
-                        "values": ExternalDataService.get_categories()
-                    }
-                }
-            }
-        }
+
+    async def get_field_metadata(self, field_name: str) -> List[Dict[str, Any]]:
+        """Получить метаданные для поля"""
+        if field_name == "status_id":
+            return await self.get_reference_data(TitleStatus)
+        elif field_name == "type_id":
+            return await self.get_reference_data(TitleType)
+        elif field_name == "genre_id":
+            return await self.get_reference_data(Genres)
+        return None

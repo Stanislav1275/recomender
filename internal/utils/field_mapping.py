@@ -1,5 +1,6 @@
 from enum import Enum
-from typing import List, Dict, Any, Union, Optional, TypedDict
+from typing import List, Dict, Any, TypedDict
+
 from internal.types import FieldMetadata
 
 
@@ -29,17 +30,6 @@ class FieldMapping(TypedDict):
     reference_display: str     # Поле для отображения (для reference)
     default_value: Any         # Значение по умолчанию
 
-
-class TableRelation(TypedDict):
-    """
-    Defines a relationship between two tables in the system.
-    Used to establish connections between different data entities.
-    """
-    table_name: str      # Name of the relationship table
-    source_table: str    # Name of the source table
-    target_table: str    # Name of the target table
-    source_field: str    # Field in the source table
-    target_field: str    # Field in the target table
 
 
 # Mapping of fields from the Titles table
@@ -81,43 +71,3 @@ TITLES_FIELD_MAPPINGS: Dict[str, FieldMetadata] = {
         "values": [{"id": v, "name": str(v)} for v in [0, 1]]
     }
 }
-
-
-# Mapping of fields for related tables
-RELATED_TABLE_MAPPINGS: Dict[str, Dict[str, FieldMetadata]] = {
-    "titles_sites": {
-        "site_id": {
-            "name": "site_id",
-            "description": "Platform where the content is hosted (e.g., remanga, renovels, recomics, reanime, rehentai, neremanga)",
-            "type": FieldType.REFERENCE,
-            "values": None
-        }
-    },
-    "titles_genres": {
-        "genre_id": {
-            "name": "genre_id",
-            "description": "Genre identifier for the content",
-            "type": FieldType.REFERENCE,
-            "values": None
-        }
-    }
-}
-
-
-# List of table relationships in the system
-TABLE_RELATIONS: List[TableRelation] = [
-    {
-        "table_name": "titles_sites",
-        "source_table": "titles",
-        "target_table": "django_site",
-        "source_field": "id",
-        "target_field": "id"
-    },
-    {
-        "table_name": "titles_genres",
-        "source_table": "titles",
-        "target_table": "genres",
-        "source_field": "id",
-        "target_field": "id"
-    }
-]

@@ -19,8 +19,8 @@ from utils.cat_chapters import categorize_chapters
 warnings.filterwarnings('ignore')
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 threadpoolctl.threadpool_limits(1, "blas")
-USERS_LIMIT = 1000000
-DAYS = 1000000
+USERS_LIMIT = 100
+DAYS = 100
 test_users_ids = [34]
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)

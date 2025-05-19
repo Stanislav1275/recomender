@@ -1,11 +1,10 @@
 import os
-from mailbox import ExternalClashError
+from contextlib import contextmanager
 
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from dotenv import load_dotenv
-from contextlib import contextmanager
 
 load_dotenv()
 DB_HOST = os.getenv("RE_DB_HOST")

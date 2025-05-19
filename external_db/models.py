@@ -1,9 +1,23 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Boolean, JSON, DECIMAL, SmallInteger, Date, \
-    BigInteger, select
-from sqlalchemy.orm import column_property
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, JSON, DECIMAL, SmallInteger, Date, \
+    BigInteger, select, event
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import column_property, relationship
 
-from external_db.db_connecter import ExternalBase  # Импортируйте Base из вашего файла database.py
+from external_db.db_connecter import ExternalBase
 
+
+# read only
+@event.listens_for(ExternalBase, 'before_insert')
+def prevent_insert(mapper, connection, target):
+    raise SQLAlchemyError("Write operations are not allowed on external database")
+
+@event.listens_for(ExternalBase, 'before_update')
+def prevent_update(mapper, connection, target):
+    raise SQLAlchemyError("Write operations are not allowed on external database")
+
+@event.listens_for(ExternalBase, 'before_delete')
+def prevent_delete(mapper, connection, target):
+    raise SQLAlchemyError("Write operations are not allowed on external database")
 
 class BookmarkType(ExternalBase):
     __tablename__ = 'bookmark_type'
@@ -80,6 +94,9 @@ class DjangoSite(ExternalBase):
     id = Column(BigInteger, primary_key=True)
     domain = Column(String(100), unique=True)
     name = Column(String(50))
+
+    def __repr__(self):
+        return f"<Site(id={self.id}, domain='{self.domain}', name='{self.name}')>"
 
 
 class Genres(ExternalBase):
@@ -251,6 +268,15 @@ class Titles(ExternalBase):
     last_chapter_uploaded = Column(DateTime, nullable=True)
     is_legal = Column(Integer)
     is_licensed = Column(Integer)
+
+    # Связи
+    # genres = relationship("Genres", secondary="titles_genres")
+    # categories = relationship("Categories", secondary="titles_categories")
+    status = relationship("TitleStatus")
+    type = relationship("TitleType")
+
+    def __repr__(self):
+        return f"<Title(id={self.id}, name='{self.main_name}')>"
 
 
 class TitlesGenres(ExternalBase):

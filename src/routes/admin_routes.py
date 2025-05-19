@@ -1,94 +1,260 @@
-from fastapi import APIRouter, HTTPException, Depends
 from typing import List
-from internal.repositories import ConfigRepository
-from src.services.configuration_service import AdminPanelService
-from internal.types import (
-    FieldOptions,
-    RecommendationConfig,
-    Config
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from internal.config.mongo_adapter import get_database
+from internal.models import RecommendationConfig, ConfigExecutionLog
+from internal.repositories import RecommendationConfigRepository
+from internal.services import RecommendationConfigService
+from internal.types import ConfigResponse, ErrorResponse, FieldOptions
+from external_db.data_service import ExternalDataService
+
+router = APIRouter(prefix="/api/admin/configs", tags=["admin"])
+
+
+async def get_config_service() -> RecommendationConfigService:
+    """Получить сервис конфигураций"""
+    db = await get_database()
+    repository = RecommendationConfigRepository(db)
+    external_service = ExternalDataService()
+    return RecommendationConfigService(repository, external_service)
+
+
+@router.get(
+    "/field-options",
+    response_model=FieldOptions,
+    responses={
+        200: {"description": "Опции полей для админ-панели"},
+        500: {"model": ErrorResponse, "description": "Внутренняя ошибка сервера"}
+    }
 )
+async def get_field_options(
+    service: RecommendationConfigService = Depends(get_config_service)
+):
+    """Получить опции полей для админ-панели"""
+    try:
+        return await service.get_field_options()
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=ErrorResponse(
+                error_code="INTERNAL_ERROR",
+                message=str(e)
+            ).dict()
+        )
 
-router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-@router.get("/field-options")
-async def get_field_options() -> FieldOptions:
-    """
-    Get all available field options for the admin panel.
-    Returns metadata about fields, related tables, sites, and available operators.
-    """
-    return AdminPanelService.get_field_options()
+@router.get(
+    "/",
+    response_model=List[ConfigResponse],
+    responses={
+        200: {"description": "Список конфигураций"},
+        500: {"model": ErrorResponse, "description": "Внутренняя ошибка сервера"}
+    }
+)
+async def get_configs(
+    skip: int = 0,
+    limit: int = 100,
+    service: RecommendationConfigService = Depends(get_config_service)
+):
+    """Получить список конфигураций"""
+    try:
+        return await service.get_configs(skip, limit)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=ErrorResponse(
+                error_code="INTERNAL_ERROR",
+                message=str(e)
+            ).dict()
+        )
 
-@router.get("/configs", response_model=List[RecommendationConfig])
-async def get_configs() -> List[RecommendationConfig]:
-    """
-    Get a list of all recommendation configurations.
-    Returns basic information about each configuration without detailed metadata.
-    """
-    configs = ConfigRepository.get_all()
-    result = []
-    for config in configs:
-        config_dict = config.to_mongo().to_dict()
-        # Convert ObjectId to string for JSON serialization
-        if '_id' in config_dict:
-            config_dict['id'] = str(config_dict['_id'])
-            del config_dict['_id']
-        result.append(config_dict)
-    return result
 
-@router.get("/configs/{config_id}", response_model=Config)
-async def get_config(config_id: str) -> Config:
-    """
-    Get a specific recommendation configuration with all its metadata.
-    Returns detailed information about the configuration including all available options.
-    """
-    config_data = AdminPanelService.get_config_by_uid(config_id)
-    if not config_data:
-        raise HTTPException(status_code=404, detail="Configuration not found")
-    
-    # Преобразуем _id в id в конфигурации
-    if '_id' in config_data['config']:
-        config_data['config']['id'] = str(config_data['config']['_id'])
-        del config_data['config']['_id']
-    
-    return config_data
+@router.get(
+    "/{config_id}",
+    response_model=ConfigResponse,
+    responses={
+        200: {"description": "Конфигурация найдена"},
+        404: {"model": ErrorResponse, "description": "Конфигурация не найдена"},
+        500: {"model": ErrorResponse, "description": "Внутренняя ошибка сервера"}
+    }
+)
+async def get_config(
+    config_id: str,
+    service: RecommendationConfigService = Depends(get_config_service)
+):
+    """Получить конфигурацию по ID"""
+    try:
+        config = await service.get_config(config_id)
+        if not config:
+            raise HTTPException(
+                status_code=404,
+                detail=ErrorResponse(
+                    error_code="NOT_FOUND",
+                    message="Configuration not found",
+                    details={"config_id": config_id}
+                ).dict()
+            )
+        return config
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=ErrorResponse(
+                error_code="INTERNAL_ERROR",
+                message=str(e)
+            ).dict()
+        )
 
-@router.post("/configs", response_model=RecommendationConfig)
-async def create_config(config_data: RecommendationConfig) -> RecommendationConfig:
-    """
-    Create a new recommendation configuration.
-    Validates the input data and creates a new configuration in the system.
-    """
-    config = ConfigRepository.create(config_data)
-    config_dict = config.to_mongo().to_dict()
-    if '_id' in config_dict:
-        config_dict['id'] = str(config_dict['_id'])
-        del config_dict['_id']
-    return config_dict
 
-@router.put("/configs/{config_id}", response_model=RecommendationConfig)
-async def update_config(config_id: str, config_data: RecommendationConfig) -> RecommendationConfig:
-    """
-    Update an existing recommendation configuration.
-    Validates the input data and updates the specified configuration.
-    """
-    config = ConfigRepository.update(config_id, config_data)
-    if not config:
-        raise HTTPException(status_code=404, detail="Configuration not found")
-    
-    config_dict = config.to_mongo().to_dict()
-    if '_id' in config_dict:
-        config_dict['id'] = str(config_dict['_id'])
-        del config_dict['_id']
-    return config_dict
+@router.post(
+    "/",
+    response_model=ConfigResponse,
+    responses={
+        201: {"description": "Конфигурация создана"},
+        400: {"model": ErrorResponse, "description": "Неверные данные"},
+        500: {"model": ErrorResponse, "description": "Внутренняя ошибка сервера"}
+    }
+)
+async def create_config(
+    config: RecommendationConfig,
+    service: RecommendationConfigService = Depends(get_config_service)
+):
+    """Создать новую конфигурацию"""
+    try:
+        return await service.create_config(config)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=ErrorResponse(
+                error_code="VALIDATION_ERROR",
+                message=str(e)
+            ).dict()
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=ErrorResponse(
+                error_code="INTERNAL_ERROR",
+                message=str(e)
+            ).dict()
+        )
 
-@router.delete("/configs/{config_id}")
-async def delete_config(config_id: str) -> dict[str, bool]:
-    """
-    Delete a recommendation configuration.
-    Removes the specified configuration from the system.
-    """
-    success = ConfigRepository.delete(config_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Configuration not found")
-    
-    return {"success": True} 
+
+@router.put(
+    "/{config_id}",
+    response_model=ConfigResponse,
+    responses={
+        200: {"description": "Конфигурация обновлена"},
+        404: {"model": ErrorResponse, "description": "Конфигурация не найдена"},
+        400: {"model": ErrorResponse, "description": "Неверные данные"},
+        500: {"model": ErrorResponse, "description": "Внутренняя ошибка сервера"}
+    }
+)
+async def update_config(
+    config_id: str,
+    config: RecommendationConfig,
+    service: RecommendationConfigService = Depends(get_config_service)
+):
+    """Обновить конфигурацию"""
+    try:
+        # Проверяем существование конфигурации
+        existing_config = await service.get_config(config_id)
+        if not existing_config:
+            raise HTTPException(
+                status_code=404,
+                detail=ErrorResponse(
+                    error_code="NOT_FOUND",
+                    message="Configuration not found",
+                    details={"config_id": config_id}
+                ).dict()
+            )
+        return await service.update_config(config_id, config)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=ErrorResponse(
+                error_code="VALIDATION_ERROR",
+                message=str(e)
+            ).dict()
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=ErrorResponse(
+                error_code="INTERNAL_ERROR",
+                message=str(e)
+            ).dict()
+        )
+
+
+@router.delete(
+    "/{config_id}",
+    response_model=bool,
+    responses={
+        200: {"description": "Конфигурация удалена"},
+        404: {"model": ErrorResponse, "description": "Конфигурация не найдена"},
+        500: {"model": ErrorResponse, "description": "Внутренняя ошибка сервера"}
+    }
+)
+async def delete_config(
+    config_id: str,
+    service: RecommendationConfigService = Depends(get_config_service)
+):
+    """Удалить конфигурацию"""
+    try:
+        # Проверяем существование конфигурации
+        existing_config = await service.get_config(config_id)
+        if not existing_config:
+            raise HTTPException(
+                status_code=404,
+                detail=ErrorResponse(
+                    error_code="NOT_FOUND",
+                    message="Configuration not found",
+                    details={"config_id": config_id}
+                ).dict()
+            )
+        return await service.delete_config(config_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=ErrorResponse(
+                error_code="INTERNAL_ERROR",
+                message=str(e)
+            ).dict()
+        )
+
+
+@router.get(
+    "/{config_id}/logs",
+    response_model=List[ConfigExecutionLog],
+    responses={
+        200: {"description": "Логи конфигурации"},
+        404: {"model": ErrorResponse, "description": "Конфигурация не найдена"},
+        500: {"model": ErrorResponse, "description": "Внутренняя ошибка сервера"}
+    }
+)
+async def get_config_logs(
+    config_id: str,
+    skip: int = 0,
+    limit: int = 100,
+    service: RecommendationConfigService = Depends(get_config_service)
+):
+    """Получить логи выполнения конфигурации"""
+    try:
+        return await service.get_config_logs(config_id, skip, limit)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=ErrorResponse(
+                error_code="INTERNAL_ERROR",
+                message=str(e)
+            ).dict()
+        ) 

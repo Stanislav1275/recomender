@@ -1,10 +1,47 @@
 import os
 from contextlib import contextmanager
-from pymongo import MongoClient
-from dotenv import load_dotenv
 from typing import Optional, Any, Dict, List
+import logging
+from motor.motor_asyncio import AsyncIOMotorClient
+
+from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+# Глобальные переменные для хранения клиента и базы данных
+_mongo_client: Optional[AsyncIOMotorClient] = None
+_db_name = os.getenv("MONGO_DB_NAME", "recommender_db")
+
+async def get_mongo_client() -> AsyncIOMotorClient:
+    """Получить или создать клиент MongoDB"""
+    global _mongo_client
+    
+    if _mongo_client is None:
+        host = os.getenv("MONGO_HOST", "localhost")
+        port = int(os.getenv("MONGO_PORT", "27017"))
+        user = os.getenv("MONGO_USER", "admin")
+        password = os.getenv("MONGO_PASSWORD", "password")
+        
+        connection_string = f"mongodb://{user}:{password}@{host}:{port}"
+        logger.info(f"MongoDB connection string: {connection_string}")
+        
+        _mongo_client = AsyncIOMotorClient(connection_string)
+    
+    return _mongo_client
+
+async def get_database():
+    """Получить базу данных"""
+    client = await get_mongo_client()
+    return client[_db_name]
+
+async def close_mongo_connection():
+    """Закрыть соединение с MongoDB"""
+    global _mongo_client
+    if _mongo_client is not None:
+        _mongo_client.close()
+        _mongo_client = None
 
 class MongoAdapter:
     def __init__(self):
@@ -14,14 +51,16 @@ class MongoAdapter:
         self.password = os.getenv("MONGO_PASSWORD", "password")
         self.db_name = os.getenv("MONGO_DB_NAME", "recommender_db")
         
-        self.client = MongoClient(f"mongodb://{self.user}:{self.password}@{self.host}:{self.port}/")
+        connection_string = f"mongodb://{self.user}:{self.password}@{self.host}:{self.port}"
+        logger.info(f"MongoDB connection string: {connection_string}")
+        self.client = AsyncIOMotorClient(connection_string)
         self.db = self.client[self.db_name]
     
-    def get_collection(self, collection_name: str):
+    async def get_collection(self, collection_name: str):
         return self.db[collection_name]
     
-    def close(self):
-        self.client.close()
+    async def close(self):
+        await self.client.close()
 
 class MongoSession:
     def __init__(self, adapter: MongoAdapter):
@@ -94,13 +133,13 @@ class MongoQuery:
 mongo_adapter = MongoAdapter()
 
 @contextmanager
-def get_mongo_session():
+async def get_mongo_session():
     session = MongoSession(mongo_adapter)
     try:
         yield session
-        session.commit()
+        await session.commit()
     except Exception:
-        session.rollback()
+        await session.rollback()
         raise
     finally:
-        session.close()
+        await session.close()

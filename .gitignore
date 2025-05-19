@@ -14,8 +14,6 @@ re_env/**
 re_env/**/*
 re_
 .wsl_venv
-.wsl_venv
-.wsl_venv
 .wsl_venv/*
 .wsl_venv/**
 .env
