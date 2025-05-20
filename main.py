@@ -121,7 +121,7 @@ class TitleResponse(BaseModel):
 async def rec_by_users(user_id: int, db: Session = Depends(get_db)) -> List[TitleResponse]:
     try:
         model, dataset = await ModelManager().get_model()
-        recos = model.recommend(users=[user_id], dataset=dataset, k=40, filter_viewed=True)
+        recos = model.recommend(users=[user_id], dataset=dataset, k=10, filter_viewed=True)
         item_ids = recos['item_id'].tolist()
         stmt = select(Titles).where(Titles.id.in_(item_ids))
 

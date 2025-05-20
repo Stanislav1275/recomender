@@ -24,7 +24,7 @@ threadpoolctl.threadpool_limits(1, "blas")
 
 # Загрузка переменных окружения
 load_dotenv()
-RECORDS_LIMIT = int(os.getenv('RECORDS_LIMIT', 1000))
+RECORDS_LIMIT = 10000
 ALLOWED_USERS = json.loads(os.getenv('ALLOWED_USERS', '[]'))
 
 USERS_LIMIT = 100
@@ -129,10 +129,10 @@ class BlacklistManager:
                 (Titles.is_yaoi == 1) |
                 (Titles.uploaded == 0),
             )
-            site_filter_query = db.query(TitlesSites.title_id).filter(
-                TitlesSites.site_id != 1
-            )
-            result = black_query.union(site_filter_query)
+            # site_filter_query = db.query(TitlesSites.title_id).filter(
+            #     TitlesSites.site_id != 1
+            # )
+            result = black_query.union(black_query)
             ids = {row.id for row in result.all()}
             return ids
 
@@ -189,9 +189,9 @@ class DataPrepareService:
             query = db.query(UserTitleData).filter(
                 ~UserTitleData.title_id.in_(black_list))
             
-            if ALLOWED_USERS:
-                query = query.filter(UserTitleData.user_id.in_(ALLOWED_USERS))
-            
+            # if ALLOWED_USERS:
+            #     query = query.filter(UserTitleData.user_id.in_(ALLOWED_USERS))
+            #
             user_title_data_pd = pd.read_sql_query(
                 query.limit(RECORDS_LIMIT).statement, 
                 db.bind
@@ -231,8 +231,8 @@ class DataPrepareService:
                 ~Bookmarks.title_id.in_(black_list)
             )
             
-            if ALLOWED_USERS:
-                query = query.filter(Bookmarks.user_id.in_(ALLOWED_USERS))
+            # if ALLOWED_USERS:
+            #     query = query.filter(Bookmarks.user_id.in_(ALLOWED_USERS))
             
             bookmarks_pd = pd.read_sql_query(
                 query.limit(RECORDS_LIMIT).statement,
@@ -257,9 +257,9 @@ class DataPrepareService:
                     Comments.is_deleted == 0
                 )
                 
-                if ALLOWED_USERS:
-                    query = query.filter(Comments.user_id.in_(ALLOWED_USERS))
-                
+                # if ALLOWED_USERS:
+                #     query = query.filter(Comments.user_id.in_(ALLOWED_USERS))
+                #
                 comments_pd = pd.read_sql_query(
                     query.limit(RECORDS_LIMIT).statement,
                     db.bind
@@ -298,9 +298,9 @@ class DataPrepareService:
                 ~TitleChapter.title_id.in_(black_list)
             )
             
-            if ALLOWED_USERS:
-                query = query.filter(UserBuys.user_id.in_(ALLOWED_USERS))
-            
+            # if ALLOWED_USERS:
+            #     query = query.filter(UserBuys.user_id.in_(ALLOWED_USERS))
+            #
             user_buys_pd = pd.read_sql_query(
                 query.limit(RECORDS_LIMIT).statement,
                 db.bind
@@ -318,9 +318,9 @@ class DataPrepareService:
                 ~Rating.title_id.in_(black_list)
             )
             
-            if ALLOWED_USERS:
-                query = query.filter(Rating.user_id.in_(ALLOWED_USERS))
-            
+            # if ALLOWED_USERS:
+            #     query = query.filter(Rating.user_id.in_(ALLOWED_USERS))
+            #
             ratings_pd = pd.read_sql_query(
                 query.limit(RECORDS_LIMIT).statement,
                 db.bind
@@ -349,7 +349,7 @@ class DataPrepareService:
             return df
 
         black_list = await BlacklistManager.get_black_titles_ids()
-
+        print(black_list)
         with get_external_session() as db:
             result = db.query(Titles.id, Titles.last_chapter_uploaded).where(
                 Titles.id.in_(df[Columns.Item].unique()),
@@ -394,9 +394,9 @@ class DataPrepareService:
         with get_external_session() as db:
             query = db.query(RawUsers).filter_by(is_banned=0)
             
-            if ALLOWED_USERS:
-                query = query.filter(RawUsers.id.in_(ALLOWED_USERS))
-            
+            # if ALLOWED_USERS:
+            #     query = query.filter(RawUsers.id.in_(ALLOWED_USERS))
+            #
             users_pd = pd.read_sql_query(
                 query.limit(RECORDS_LIMIT).statement,
                 db.bind
