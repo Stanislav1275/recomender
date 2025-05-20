@@ -128,6 +128,9 @@ class FieldOptions(BaseModel):
             elif field_name == "type_id":
                 # Значения для типов
                 values = await external_service.get_field_metadata(field_name)
+            elif field_name == "genre_id":
+                # Значения для типов
+                values = await external_service.get_field_metadata(field_name)
             
             title_fields.append(
                 FieldMetadata(

@@ -1,6 +1,9 @@
 import asyncio
 import logging
 from datetime import  datetime
+import os
+from dotenv import load_dotenv
+import json
 
 import numpy as np
 from rectools import Columns
@@ -10,7 +13,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from external_db.models import RawUsers, Bookmarks, Rating, UserTitleData, \
     TitlesTitleRelation, Comments, UserBuys, TitleChapter, TitlesSites
 import warnings
-import os
 import threadpoolctl
 
 from utils.age_group import calculate_age_group
@@ -19,6 +21,12 @@ from utils.cat_chapters import categorize_chapters
 warnings.filterwarnings('ignore')
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 threadpoolctl.threadpool_limits(1, "blas")
+
+# Загрузка переменных окружения
+load_dotenv()
+RECORDS_LIMIT = int(os.getenv('RECORDS_LIMIT', 1000))
+ALLOWED_USERS = json.loads(os.getenv('ALLOWED_USERS', '[]'))
+
 USERS_LIMIT = 100
 DAYS = 100
 test_users_ids = [34]
@@ -177,16 +185,17 @@ class DataPrepareService:
 
     @staticmethod
     async def _get_user_title_data(black_list: set):
-
         with get_external_session() as db:
-            # cur_date = datetime.now()
-            # thirty_days_ago = cur_date - timedelta(days=DAYS)
+            query = db.query(UserTitleData).filter(
+                ~UserTitleData.title_id.in_(black_list))
+            
+            if ALLOWED_USERS:
+                query = query.filter(UserTitleData.user_id.in_(ALLOWED_USERS))
+            
             user_title_data_pd = pd.read_sql_query(
-                db.query(UserTitleData)
-                .filter(
-                    # UserTitleData.last_read_date >= thirty_days_ago,
-                    ~UserTitleData.title_id.in_(black_list))
-                .statement, db.bind)
+                query.limit(RECORDS_LIMIT).statement, 
+                db.bind
+            )
             user_title_data_pd.rename({"last_read_date": Columns.Datetime}, inplace=True)
             new_rows = []
 
@@ -217,10 +226,18 @@ class DataPrepareService:
     @staticmethod
     async def _get_bookmarks(black_list: set):
         with get_external_session() as db:
-            bookmarks_pd = pd.read_sql_query(db.query(Bookmarks).filter(Bookmarks.is_default == 1,
-                                                                        ~Bookmarks.title_id.in_(black_list)).limit(
-                USERS_LIMIT).statement,
-                                             db.bind)
+            query = db.query(Bookmarks).filter(
+                Bookmarks.is_default == 1,
+                ~Bookmarks.title_id.in_(black_list)
+            )
+            
+            if ALLOWED_USERS:
+                query = query.filter(Bookmarks.user_id.in_(ALLOWED_USERS))
+            
+            bookmarks_pd = pd.read_sql_query(
+                query.limit(RECORDS_LIMIT).statement,
+                db.bind
+            )
             bookmarks_pd.rename({"title_id": Columns.Item, "bookmark_type_id": Columns.Weight}, axis='columns',
                                 inplace=True)
             bookmarks_pd[Columns.Datetime] = pd.to_datetime("now")
@@ -238,9 +255,15 @@ class DataPrepareService:
                     ~Comments.title_id.in_(black_list),
                     Comments.is_blocked == 0,
                     Comments.is_deleted == 0
-                ).limit(USERS_LIMIT)
-
-                comments_pd = pd.read_sql_query(query.statement, db.bind)
+                )
+                
+                if ALLOWED_USERS:
+                    query = query.filter(Comments.user_id.in_(ALLOWED_USERS))
+                
+                comments_pd = pd.read_sql_query(
+                    query.limit(RECORDS_LIMIT).statement,
+                    db.bind
+                )
 
                 if not comments_pd.empty:
                     comments_pd = (
@@ -271,11 +294,17 @@ class DataPrepareService:
     async def _get_user_buys(black_list: set):
         with get_external_session() as db:
             query = db.query(UserBuys.user_id, UserBuys.date, TitleChapter.title_id
-                             ).join(TitleChapter, UserBuys.chapter_id == TitleChapter.id).filter(
+                           ).join(TitleChapter, UserBuys.chapter_id == TitleChapter.id).filter(
                 ~TitleChapter.title_id.in_(black_list)
-            ).limit(1000)
-
-            user_buys_pd = pd.read_sql_query(query.statement, db.bind)
+            )
+            
+            if ALLOWED_USERS:
+                query = query.filter(UserBuys.user_id.in_(ALLOWED_USERS))
+            
+            user_buys_pd = pd.read_sql_query(
+                query.limit(RECORDS_LIMIT).statement,
+                db.bind
+            )
             user_buys_pd.rename({"date": Columns.Datetime, "title_id": Columns.Item, "user_id": Columns.User},
                                 axis='columns',
                                 inplace=True)
@@ -285,13 +314,17 @@ class DataPrepareService:
     @staticmethod
     async def _get_ratings(black_list: set):
         with get_external_session() as db:
-            cur_date = datetime.now()
-            # thirty_days_ago = cur_date - timedelta(days=DAYS)
-            # .filter(Rating.date.between(thirty_days_ago, cur_date))
             query = db.query(Rating).filter(
-                # Rating.date >= thirty_days_ago,
-                ~Rating.title_id.in_(black_list)).limit(1000).statement
-            ratings_pd = pd.read_sql_query(query, db.bind)
+                ~Rating.title_id.in_(black_list)
+            )
+            
+            if ALLOWED_USERS:
+                query = query.filter(Rating.user_id.in_(ALLOWED_USERS))
+            
+            ratings_pd = pd.read_sql_query(
+                query.limit(RECORDS_LIMIT).statement,
+                db.bind
+            )
             ratings_pd.rename({"date": Columns.Datetime, "title_id": Columns.Item, "rating": Columns.Weight},
                               axis='columns',
                               inplace=True)
@@ -359,8 +392,13 @@ class DataPrepareService:
     @staticmethod
     async def get_users_features():
         with get_external_session() as db:
+            query = db.query(RawUsers).filter_by(is_banned=0)
+            
+            if ALLOWED_USERS:
+                query = query.filter(RawUsers.id.in_(ALLOWED_USERS))
+            
             users_pd = pd.read_sql_query(
-                db.query(RawUsers).filter_by(is_banned=0).limit(3000).statement,
+                query.limit(RECORDS_LIMIT).statement,
                 db.bind
             )
             users_pd.fillna('Unknown', inplace=True)

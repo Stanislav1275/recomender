@@ -5,6 +5,7 @@ from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from internal.models import ConfigExecutionLog
+from .config.mongo_adapter import logger
 from .models import RecommendationConfig
 from .types import FieldOptions, ConfigResponse
 
@@ -136,10 +137,12 @@ class RecommendationConfigRepository:
                 next_run = next_run.replace(day=next_run.day + 1)
                 
         elif schedule_type == "once_year":
-            # Формат DD.MM:HH:MM
+            # Формат DD.MM:HH.MM
             date_part, time_part = date_like.split(":")
             day, month = map(int, date_part.split("."))
-            hours, minutes = map(int, time_part.split(":"))
+            hours_str, minutes_str = time_part.split(".")
+            hours = int(hours_str)
+            minutes = int(minutes_str)
             
             next_run = now.replace(
                 month=month,

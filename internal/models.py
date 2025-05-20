@@ -71,7 +71,7 @@ class FieldFilter(BaseModel):
 class ScheduleDate(BaseModel):
     """Расписание запуска"""
     type: str = Field(..., description="Тип расписания")
-    date_like: str = Field(..., description="Дата/время в формате cron")
+    date_like: str = Field(..., description="Дата/время")
     is_active: bool = Field(True, description="Активно ли расписание")
 
     model_config = ConfigDict(
