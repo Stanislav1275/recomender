@@ -247,7 +247,19 @@ async def get_config_logs(
 ):
     """Получить логи выполнения конфигурации"""
     try:
-        return await service.get_config_logs(config_id, skip, limit)
+        # Проверяем существование конфигурации
+        config = await service.get_config(config_id)
+        if not config:
+            raise HTTPException(
+                status_code=404,
+                detail=ErrorResponse(
+                    error_code="CONFIG_NOT_FOUND",
+                    message=f"Конфигурация с ID {config_id} не найдена"
+                ).dict()
+            )
+            
+        logs = await service.get_config_logs(config_id, skip, limit)
+        return sorted(logs, key=lambda x: x.execution_time, reverse=True)
     except HTTPException:
         raise
     except Exception as e:

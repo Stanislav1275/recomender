@@ -28,62 +28,7 @@ db.configurations.createIndex({ site_id: 1 });
 db.configurations.createIndex({ created_at: -1 });
 
 // === РЕКОМЕНДАТЕЛЬНЫЕ КОНФИГУРАЦИИ (RecommendationConfig) ===
-db.createCollection('recommendation_configs', {
-    validator: {
-        $jsonSchema: {
-            bsonType: "object",
-            required: ["name", "title_field_filters", "is_active", "created_at", "updated_at"],
-            properties: {
-                name: {
-                    bsonType: "string",
-                    description: "Название конфигурации"
-                },
-                description: {
-                    bsonType: ["string", "null"],
-                    description: "Описание конфигурации"
-                },
-                title_field_filters: {
-                    bsonType: "array",
-                    items: {
-                        bsonType: "object",
-                        required: ["field_name", "operator", "values", "is_active"],
-                        properties: {
-                            field_name: {
-                                bsonType: "string",
-                                description: "Имя поля для фильтрации"
-                            },
-                            operator: {
-                                bsonType: "string",
-                                description: "Оператор сравнения"
-                            },
-                            values: {
-                                bsonType: "array",
-                                description: "Значения для сравнения"
-                            },
-                            is_active: {
-                                bsonType: "bool",
-                                description: "Активен ли фильтр"
-                            }
-                        }
-                    }
-                },
-                is_active: {
-                    bsonType: "bool",
-                    description: "Активна ли конфигурация"
-                },
-                created_at: {
-                    bsonType: "date",
-                    description: "Дата создания"
-                },
-                updated_at: {
-                    bsonType: "date",
-                    description: "Дата обновления"
-                }
-            }
-        }
-    }
-});
-
+db.createCollection('recommendation_configs');
 // Индексы из meta модели
 db.recommendation_configs.createIndex({ name: 1 }, { unique: true });
 db.recommendation_configs.createIndex({ is_active: 1 });
@@ -121,6 +66,7 @@ db.observable_users.createIndex({ user_id: 1 });
 db.sites.createIndex({ external_id: 1 }, { unique: true });
 db.sites.createIndex({ name: 1 });
 
+
 db.sites.insertMany([
   {
     external_id: 1,
@@ -137,22 +83,15 @@ db.recommendation_configs.insertOne({
     {
       field_name: "is_erotic",
       operator: "not_equals",
-      values: [false],
-      is_active: true
+      values: [1]
     },
     {
       field_name: "is_legal",
       operator: "equals", 
-      values: [true],
-      is_active: true
-    },
-    {
-      field_name: "site_id",
-      operator: "in",
-      values: [1, 3, 6],
-      is_active: true
+      values: [1]
     }
   ],
+  related_table_filters: [{table_name:"titles_sites", field_name:"site_id", operator:"in", values:[1,3,6]}],
   schedules_dates: [
     {
       type: "once_day",
@@ -164,7 +103,6 @@ db.recommendation_configs.insertOne({
   created_at: new Date(),
   updated_at: new Date()
 });
-
 db.recommendation_configs.insertOne({
   name: "default_recommendation_config_novels",
   description: "Базовая конфигурация рекомендательной системы - Книги",
@@ -172,23 +110,16 @@ db.recommendation_configs.insertOne({
   title_field_filters: [
     {
       field_name: "is_erotic",
-      operator: "not_in",
-      values: [true],
-      is_active: true
+      operator: "not in",
+      values: [1]
     },
     {
       field_name: "is_legal",
       operator: "in", 
-      values: [true],
-      is_active: true
-    },
-    {
-      field_name: "site_id",
-      operator: "in",
-      values: [2],
-      is_active: true
+      values: [1]
     }
   ],
+  related_table_filters: [{table_name:"titles_sites", field_name:"site_id", operator:"in", values:[2]}],
   schedules_dates: [
     {
       type: "once_day",
@@ -200,5 +131,4 @@ db.recommendation_configs.insertOne({
   created_at: new Date(),
   updated_at: new Date()
 });
-
-print();
+print("MongoDB initialization completed for recommender system");

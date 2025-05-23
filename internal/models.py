@@ -144,6 +144,7 @@ class ConfigExecutionLog(MongoBaseModel):
     execution_time: float = Field(..., description="Время выполнения в секундах")
     items_processed: int = Field(..., description="Количество обработанных элементов")
     error: Optional[str] = Field(None, description="Текст ошибки, если есть")
+    metrics: Optional[Dict[str, float]] = Field(None, description="Метрики качества модели")
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -153,7 +154,12 @@ class ConfigExecutionLog(MongoBaseModel):
                 "message": "Configuration executed successfully",
                 "execution_time": 1.5,
                 "items_processed": 1000,
-                "error": None
+                "error": None,
+                "metrics": {
+                    "precision": 0.85,
+                    "recall": 0.82,
+                    "ndcg": 0.91
+                }
             }
         }
     )

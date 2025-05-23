@@ -82,8 +82,24 @@ async def shutdown_event():
 
 
 @app.post('/api/train')
-async def train():
-    await RecService.train()
+async def train(config_id: str = "default"):
+    """
+    Запуск обучения модели
+    
+    Args:
+        config_id: ID конфигурации для обучения. Если не указан, используется "default"
+    """
+    try:
+        result = await RecService.train(config_id=config_id)
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "TRAINING_ERROR",
+                "message": str(e)
+            }
+        )
 
 
 class CoverModel(BaseModel):
